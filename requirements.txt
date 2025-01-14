@@ -1,0 +1,28 @@
+# Base ---------------------------------------
+PyYAML>=5.3.1
+tqdm>=4.64.0
+click
+python-dotenv
+omegaconf>=2.3.0
+numpy
+pandas>=1.1.4
+
+# Plotting ------------------------------------
+seaborn>=0.11.0
+matplotlib>=3.2.2
+
+# Planet --------------------------------------
+planet
+
+# Notebooks -----------------------------------
+ipython
+notebook
+
+# Lint ----------------------------------------
+black
+isort
+pyupgrade
+pygments
+flake8
+autopep8
+nptyping

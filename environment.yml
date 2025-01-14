@@ -1,0 +1,17 @@
+name: planet_download
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11.9 
+  - pip
+  - rasterio 
+  - geopandas>=0.14.4
+  - shapely 
+  - xarray 
+  - folium 
+  - gdal
+  - setuptools
+  - wheel
+  - pip:
+    - -r requirements.txt -e .
