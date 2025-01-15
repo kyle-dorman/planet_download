@@ -1,6 +1,6 @@
 import json
 import logging
-import shutil
+import os
 import zipfile
 from pathlib import Path
 
@@ -45,7 +45,7 @@ def unzip_downloads(results_grid_dir: Path) -> None:
         zip_ref.extractall(results_grid_dir)
 
     # Remove the order download directory
-    shutil.rmtree(order_download_path)
+    os.remove(order_download_path)
 
     assert order_files_dir.exists()
 

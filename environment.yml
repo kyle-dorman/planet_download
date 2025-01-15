@@ -3,15 +3,44 @@ channels:
   - defaults
   - conda-forge
 dependencies:
+  # Python
   - python=3.11.9 
+  # basic Python build tools
   - pip
+  - setuptools
+  - wheel
+  # Base
+  - PyYAML>=5.3.1
+  - tqdm>=4.64.0
+  - click
+  - python-dotenv
+  - omegaconf>=2.3.0
+  - numpy
+  - pandas>=1.1.4
+  # Geo
   - rasterio 
-  - geopandas>=0.14.4
   - shapely 
   - xarray 
   - folium 
   - gdal
-  - setuptools
-  - wheel
+  - planet
+  # Upgrade geopandas and fiona together
+  # https://stackoverflow.com/questions/78949093/how-to-resolve-attributeerror-module-fiona-has-no-attribute-path
+  - geopandas<=0.14.3
+  - fiona<1.10.0
+  # Plotting
+  - seaborn>=0.11.0
+  - matplotlib>=3.2.2
+  # Notebooks
+  - ipython
+  - notebook
+  # Linting
+  - black
+  - isort
+  - pyupgrade
+  - pygments
+  - flake8
+  - autopep8
+  - nptyping
   - pip:
-    - -r requirements.txt -e .
+      - -e .

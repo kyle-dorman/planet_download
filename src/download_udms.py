@@ -10,6 +10,7 @@ from dateutil.relativedelta import relativedelta
 from dotenv import find_dotenv, load_dotenv
 from omegaconf import OmegaConf
 from planet import DataClient, Session, data_filter
+from shapely.geometry import Polygon, shape
 
 from src.config import DownloadConfig
 from src.util import asset_type_by_date, setup_logger
@@ -145,6 +146,27 @@ async def download_all_udms(item_lists: list[tuple[dict, Path]], sess: Session, 
     logger.debug("Downloaded all udm items")
 
 
+# Filters UDMs that intersect with the grid less than the DownloadConfig.percent_added.
+# You can do this in the Planet web tool but not the API.
+def filter_grid_intersection(grid_path: Path, item_list: list[dict], config: DownloadConfig) -> list[dict]:
+    with open(grid_path) as f:
+        grid_geojson = json.load(f)
+        grid_geom: Polygon = shape(grid_geojson["features"][0]["geometry"])  # type: ignore
+
+    out = []
+    for item in item_list:
+        item_grid = shape(item["geometry"])
+        intersection = item_grid.intersection(grid_geom)
+        pct_intersection = intersection.area / grid_geom.area
+
+        if pct_intersection < config.percent_added:
+            continue
+
+        out.append(item)
+
+    return out
+
+
 # Gets a list of all UDMs which need to be downloaded across all grids.
 async def get_download_list(
     sess: Session, config: DownloadConfig, save_path: Path, imagery_date: datetime
@@ -166,6 +188,7 @@ async def get_download_list(
             # define the original item list. This is all imagery for the given date and grid
             lazy_item_list = await search(sess, grid_path, config, save_path, imagery_date)
             item_list = [i async for i in lazy_item_list]
+            item_list = filter_grid_intersection(grid_path, item_list, config)
 
             logger.info(f"Found {len(item_list)} matching grids for {grid_path.stem}")
 

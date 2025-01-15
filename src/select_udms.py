@@ -43,7 +43,7 @@ def filter_image_set(
     grid_path: Path,
     config: DownloadConfig,
 ) -> list[str]:
-    udm_paths = list((results_grid_dir / "udm").iterdir())
+    udm_paths = [pth for pth in (results_grid_dir / "udm").iterdir() if pth.suffix == ".tif"]
 
     # Choose CRS to work in
     crs = find_most_common_crs(udm_paths)

@@ -28,6 +28,7 @@ For Mac, perfer to install miniconda using brew.
 brew doctor
 brew update
 brew upgrade
+brew upgrade --cask --greedy
 brew install --cask miniconda
 ```
 
@@ -71,8 +72,9 @@ Files will be saved to directories following the convention `SAVE_DIR/YEAR/MONTH
 Launch jupyter notebook
 ```bash
 conda activate planet_download
-./start_jupyter.sh
+jupyter notebook --notebook-dir=notebooks --port=8892
 ```
+--allow-root --ip=0.0.0.0 --no-browser
 
 Run the notebook `inspect.ipynb` to visualize the downloaded results. 
 
@@ -98,3 +100,18 @@ conda env update --file environment.yml --prune
 
 ## TODOs
 - Test on the lab computer
+- windows commands instead of linux
+- sort grids everywhere
+- add retry to udm dowloads
+- find grid that is in 10 and 11 zone (channel island)
+- more visibility into download process
+- filter udm paths based in .tif everywhere
+- log done in each script
+- cleanup temp directory in selct_udms
+- visibility into download progress
+- change jupyter start to cmd
+- start over for base in jupyter notebook and add explanation
+- better descriptions of what file paths mean
+- add explaination of file paths in test_config
+- log exceptions on error or report number of errors
+- normalize each channel separaetly 
