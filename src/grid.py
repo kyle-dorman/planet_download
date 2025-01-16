@@ -16,6 +16,28 @@ from shapely.geometry import Polygon, shape
 logger = logging.getLogger(__name__)
 
 
+# Calculates the coverage of a valid mask (e.g., cloud cover) over a specified
+# geometry. Returns the percentage of the area covered by the mask.
+def calculate_mask_coverage(image: np.ndarray, grid_geom: Polygon, ground_sample_distance: float) -> float:
+    ground_sample_area = ground_sample_distance**2
+    grid_area = grid_geom.area
+
+    # calculate the total number of valid pixels and total valid area
+    total_1s = (image[0] == 1).sum()
+    total_valid_area = total_1s * ground_sample_area
+
+    # Calculate the valid area coverage percent
+    pct_coverage = total_valid_area / max(1, grid_area)
+
+    return pct_coverage
+
+
+# Calculates the pct of the grid that is covered by an image asset.
+def calculate_intersection_pct(grid_geom: Polygon, asset_geom: Polygon) -> float:
+    intersection = asset_geom.intersection(grid_geom)
+    return intersection.area / grid_geom.area
+
+
 # Convert a geojson poygon to a different crs.
 def open_and_convert_grid(grid_path: Path, crs: CRS) -> Polygon:
     # Load Target Grid

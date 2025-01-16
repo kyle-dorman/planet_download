@@ -6,21 +6,10 @@ Repo for downloading PlanetScope data based on a set of predefined grids.
 
 Some one time repo initialization work. 
 
+### Install Conda
+You can install miniconda if on Mac or Linux. On Windows install Anaconda.
 
-### Clone repo
-```bash
-git clone git@github.com:kyledorman/planet_download.git
-```
-
-### Per environment variables
-Copy the default env file and then edit the values inside. Importantly add your Planet API key.
-```bash
-cp base.env .env
-```
-Edit `.env` file.
-
-### Install Miniconda
-
+#### Miniconda
 Follow directions [HERE](https://docs.anaconda.com/miniconda/install/)
 
 For Mac, perfer to install miniconda using brew. 
@@ -32,16 +21,58 @@ brew upgrade --cask --greedy
 brew install --cask miniconda
 ```
 
-### Install GDAL
+#### Anaconda
+Follow directions [HERE](https://docs.anaconda.com/anaconda/install/)
 
-Follow diriections [HERE](https://gdal.org/en/stable/download.html)
+### Open Terminal
+On Windows, open an Andaconda Terminal, on Linux/Mac open a regular terminal. 
 
-It is unclear if this is needed!
+### Install Git
+Check if git is installed. It will return something e.g. `/usr/bin/git` if git is installed. 
+```bash
+# Linux/Mac
+which git
+# Windows
+where git
+```
+
+If git is not installed, install it. 
+```bash
+# Windows
+conda install git
+# Mac
+brew install git
+```
+
+### Clone repo
+This command will create a new folder `planet_download` in your terminal's current directory. If you want it installed somewhere specific, move to that folder first (`cd SOMEWHERE/ELSE`)
+```bash
+git clone git@github.com:kyledorman/planet_download.git
+```
+
+After cloning the repo, enter the folder
+```bash
+cd planet_download
+```
+
+### Planet API Key
+The Planet API key is loaded from a file `.env`. 
+
+Start by copying the default file
+```bash
+# Linux/Mac
+cp base.env .env
+
+# Windows
+copy base.env .env
+```
+Look up your API key from the [Planet Account Settings](https://www.planet.com/account/#/user-settings). 
+
+Edit `.env` file using a text editor and add your API key.
 
 ### Create conda environment
 ```bash
 conda env create -f environment.yml
-conda activate planet_download
 ```
 
 ## Download data
@@ -52,30 +83,31 @@ conda activate planet_download
 ```
 
 ### Create a config file
-See the file `src/config.py` to see all configuration options. You ***MUST*** set the `grid_dir` and `save_dir` variables. See `test_config.yaml` for a simple example.
+See the file `src/config.py` to see all configuration options. You ***MUST*** set the `grid_dir` and `save_dir` variables. See `config.yaml` for a simple example. Feel free to edit the `config.yaml` directly. 
+
+`grid_dir` - The path to a folder of geojson grid files in the wgs84 CRS. 
+`save_dir` - The path to a folder where you want to save the data. During the download process, data will be saved to folders following the convention: `save_dir/YEAR/MONTH/GRID_ID`
 
 ### Run download script
-Inpsect `run.sh` script to see how it can be used.
+Inpsect `run.py` script to see how it can be used.
 ```bash
-./run.sh
+python src/run.py --help
 ```
 
 Download files for paritcular month/year combinations
 ```bash
-./run.sh test_config.yaml 2020,2021,2022 09,10,11
+python src/run.py --config-file config.yaml --year 2020 --year 2021 --year 2022 --month 09 --month 10 --month 11
 ```
-
-Files will be saved to directories following the convention `SAVE_DIR/YEAR/MONTH/GRID_ID`. 
+The above example would download data for 3 years (2020, 2021, 2022) and 3 months (Set, Oct, Nov) for a total of 9 year/month combindations. You must provide at least 1 year and 1 month. 
 
 ## Inspect Reuslts
+You can inspect the results of a download using an included jupyter notebook. 
 
 Launch jupyter notebook
 ```bash
 conda activate planet_download
 jupyter notebook --notebook-dir=notebooks --port=8892
 ```
---allow-root --ip=0.0.0.0 --no-browser
-
 Run the notebook `inspect.ipynb` to visualize the downloaded results. 
 
 If you want to inspect the results for a particular grid you will need to extract the grid intermediates by running:
@@ -98,20 +130,12 @@ conda activate planet_download
 conda env update --file environment.yml --prune
 ```
 
+### Install GDAL
+
+Follow diriections [HERE](https://gdal.org/en/stable/download.html)
+
+It is unclear if this is needed!
+
 ## TODOs
 - Test on the lab computer
-- windows commands instead of linux
-- sort grids everywhere
-- add retry to udm dowloads
-- find grid that is in 10 and 11 zone (channel island)
-- more visibility into download process
-- filter udm paths based in .tif everywhere
-- log done in each script
-- cleanup temp directory in selct_udms
-- visibility into download progress
-- change jupyter start to cmd
-- start over for base in jupyter notebook and add explanation
-- better descriptions of what file paths mean
-- add explaination of file paths in test_config
-- log exceptions on error or report number of errors
-- normalize each channel separaetly 
+- How to approprietly handle grids in both 10 and 11 zone (25059125, 25059125)

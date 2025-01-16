@@ -1,49 +1,38 @@
 import logging
+import tempfile
 from pathlib import Path
 
 import click
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 from dotenv import find_dotenv, load_dotenv
 from omegaconf import OmegaConf
-from shapely import Polygon
 
 from src.config import DownloadConfig
 from src.grid import (
+    calculate_intersection_pct,
+    calculate_mask_coverage,
     create_polygon_aligned_profile_update,
     find_most_common_crs,
     open_and_convert_grid,
     reproject_and_crop_to_grid,
 )
-from src.util import setup_logger
+from src.util import cleaned_asset_id, geojson_paths, setup_logger, tif_paths
 
 logger = logging.getLogger(__name__)
 
 
-# Calculates the coverage of a valid mask (e.g., cloud cover) over a specified
-# geometry. Returns the percentage of the area covered by the mask.
-def calculate_mask_coverage(image: np.ndarray, grid_geom: Polygon, ground_sample_distance: float) -> float:
-    ground_sample_area = ground_sample_distance**2
-    grid_area = grid_geom.area
-
-    # calculate the total number of valid pixels and total valid area
-    total_1s = (image[0] == 1).sum()
-    total_valid_area = total_1s * ground_sample_area
-
-    # Calculate the valid area coverage percent
-    pct_coverage = total_valid_area / max(1, grid_area)
-
-    return pct_coverage
-
-
 # Finds the best set of UDMs to satisfy a target coverage value for a grid region.
-# Returns the image ids.
-def filter_image_set(
+# Returns a DataFrame of information about UDM coverage.
+def calculate_udm_coverages(
     results_grid_dir: Path,
     grid_path: Path,
     config: DownloadConfig,
-) -> list[str]:
-    udm_paths = [pth for pth in (results_grid_dir / "udm").iterdir() if pth.suffix == ".tif"]
+) -> pd.DataFrame:
+    udm_paths = tif_paths(results_grid_dir / "udm")
+    geojson_file = results_grid_dir / "search_geometries.geojson"
+    gdf = gpd.read_file(geojson_file)
 
     # Choose CRS to work in
     crs = find_most_common_crs(udm_paths)
@@ -54,48 +43,47 @@ def filter_image_set(
     # Create the new consistent grid which all UDMs wil be cropped to
     profile_update = create_polygon_aligned_profile_update(grid, crs, config.ground_sample_distance)
 
-    # Save reprojected and cropped intermediates
-    temp_udm_dir = results_grid_dir / "udm_temp"
-    temp_udm_dir.mkdir(exist_ok=True)
-
     # Crop the UDMs
     logger.debug("Cropping UDMs & calculating coverage")
-    cropped_images = []
     coverages = []
-    for udm_path in udm_paths:
-        temp_path = temp_udm_dir / udm_path.name
+    # Remove reprojected and cropped intermediates at the end
+    with tempfile.TemporaryDirectory() as tempdir:
+        for udm_path in udm_paths:
+            temp_path = Path(tempdir) / udm_path.name
 
-        # Get the UDM in the consistent grid. Do not retain the intermediates.
-        clipped_image = reproject_and_crop_to_grid(
-            tif_path=udm_path,
-            grid_geom=grid,
-            profile_update=profile_update,
-            repro_path=temp_path,
-            out_path=None,
-            channels=1,
-        )
-        cropped_images.append(clipped_image)
-        coverage = calculate_mask_coverage(
-            clipped_image,
-            grid,
-            config.ground_sample_distance,
-        )
-        coverages.append(coverage)
+            # Get the UDM in the consistent grid. Do not retain the intermediates.
+            clipped_image = reproject_and_crop_to_grid(
+                tif_path=udm_path,
+                grid_geom=grid,
+                profile_update=profile_update,
+                repro_path=temp_path,
+                out_path=None,
+                channels=1,
+            )
+            clear_coverage = calculate_mask_coverage(
+                clipped_image,
+                grid,
+                config.ground_sample_distance,
+            )
+            item_geom = gdf[gdf.id == cleaned_asset_id(udm_path.stem)].geometry.iloc[0]
+            intersection_pct = calculate_intersection_pct(grid, item_geom)
+            coverages.append((clipped_image, clear_coverage, intersection_pct))
 
     # Use udms in most to least coverage order
-    coverage_order = np.argsort(coverages)[::-1]
+    coverage_order = np.argsort([c for _, c, _ in coverages])[::-1].tolist()
 
-    # Find UDMs which improve overall grid coverage and add to the list
+    # Find UDMs which improve overall grid coverage
 
     # A grid of coverage counters
     coverage_count = np.zeros((profile_update["height"], profile_update["width"]), dtype=np.int32)
-    include_images = []
     # Area covered by the target grid
     grid_pixel_area = grid.area / config.ground_sample_distance**2
+
+    item_coverage = []
     for idx in coverage_order:
         # Find areas where we there are valid pixels
-        image = cropped_images[idx]
-        valid_pixels = image[0] == 1
+        clipped_image, clear_coverage, intersection_pct = coverages[idx]
+        valid_pixels = clipped_image[0] == 1
 
         # Areas that still need pixels
         to_add = coverage_count < config.coverage_count
@@ -106,18 +94,23 @@ def filter_image_set(
         # Determine how much of the image counts would be imporoved by this image
         pct_adding = should_update.sum() / grid_pixel_area
 
-        # Must add a resonable % of pixels to be included.
-        if pct_adding > config.percent_added:
-            coverage_count += should_update
-            include_images.append(udm_paths[idx].stem)
+        item_coverage.append(
+            {
+                "asset_id": cleaned_asset_id(udm_paths[int(idx)].stem),
+                "clear_coverge_pct": clear_coverage,
+                "intersection_pct": intersection_pct,
+                "pct_adding": pct_adding,
+                "include_image": pct_adding > config.percent_added,
+            }
+        )
 
-    return include_images
+    return pd.DataFrame(item_coverage)
 
 
 @click.command()
 @click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
-@click.option("-m", "--month", type=int)
-@click.option("-y", "--year", type=int)
+@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
+@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
 def main(
     config_file: Path,
     month: int,
@@ -134,29 +127,29 @@ def main(
     # Save the configuration to a YAML file
     OmegaConf.save(config, save_path / "config.yaml")
 
-    setup_logger(logger, save_path, log_filename="select_udms.log")
+    setup_logger(save_path, log_filename="select_udms.log")
 
     logger.info(f"Selecting best UDMs for year={year} month={month} grids={config.grid_dir} to={save_path}")
 
-    for grid_path in config.grid_dir.iterdir():
-        results_grid_dir = save_path / grid_path.stem
+    for grid_path in geojson_paths(config.grid_dir):
+        grid_id = grid_path.stem
+        logger.info(f"Selecting best UDMs for {grid_id}")
+
+        results_grid_dir = save_path / grid_id
         grid_udm_dir = results_grid_dir / "udm"
         if not grid_udm_dir.exists():
-            logger.warning(f"No udms for {grid_path.stem}")
+            logger.warning(f"No udms for {grid_id}")
             continue
 
         csv_path = results_grid_dir / "images_to_download.csv"
         if csv_path.exists():
-            logger.info(f"Download list exists for {grid_path.stem}. Skipping...")
+            logger.info(f"Download list exists for {grid_id}. Skipping...")
             continue
 
-        image_ids = filter_image_set(results_grid_dir, grid_path, config)
+        coverage_df = calculate_udm_coverages(results_grid_dir, grid_path, config)
+        coverage_df.to_csv(csv_path, index=False)
 
-        # strip the _3B_udm2 from the file name
-        # e.g. 20230901_182511_53_2486_3B_udm2.tif
-        image_ids = ["_".join(image_id.split("_")[:4]) for image_id in image_ids]
-        df = pd.DataFrame(image_ids)
-        df.to_csv(csv_path, index=False)
+    logger.info("Done!")
 
 
 if __name__ == "__main__":

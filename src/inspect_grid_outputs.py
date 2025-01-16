@@ -12,7 +12,7 @@ from src.grid import (
     open_and_convert_grid,
     reproject_and_crop_to_grid,
 )
-from src.util import setup_logger
+from src.util import setup_logger, tif_paths
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ def reproject_and_crop_udms(
     grid_path: Path,
     config: DownloadConfig,
 ) -> None:
-    udm_paths = list((results_grid_dir / "udm").iterdir())
+    udm_paths = tif_paths(results_grid_dir / "udm")
 
     # Choose CRS to work in
     crs = find_most_common_crs(udm_paths)
@@ -83,7 +83,7 @@ def reproject_and_crop_download_outputs(results_grid_dir: Path, grid_path: Path,
         reprojected_udm_dir.mkdir(exist_ok=True)
 
         # Crop the UDMs
-        logger.info(f"Cropping {name}s")
+        logger.info(f"Repojecting and cropping {name}s")
         for tif_path in file_paths:
             cropped_path = cropped_dir / tif_path.name
             reprojected_path = reprojected_udm_dir / tif_path.name
@@ -104,8 +104,8 @@ def reproject_and_crop_download_outputs(results_grid_dir: Path, grid_path: Path,
 @click.command()
 @click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
 @click.option("-g", "--grid-id", type=str)
-@click.option("-m", "--month", type=int)
-@click.option("-y", "--year", type=int)
+@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
+@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
 def main(
     config_file: Path,
     grid_id: str,
@@ -120,7 +120,7 @@ def main(
     save_path = config.save_dir / str(year) / str(month).zfill(2)
     save_path.mkdir(exist_ok=True, parents=True)
 
-    setup_logger(logger)
+    setup_logger()
 
     grid_path = config.grid_dir / f"{grid_id}.geojson"
     results_grid_dir = save_path / grid_id
@@ -130,6 +130,8 @@ def main(
 
     reproject_and_crop_download_outputs(results_grid_dir, grid_path, config)
     reproject_and_crop_udms(results_grid_dir, grid_path, config)
+
+    logger.info("Done!")
 
 
 if __name__ == "__main__":

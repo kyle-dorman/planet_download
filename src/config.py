@@ -21,8 +21,8 @@ class DownloadConfig:
     # Require ground control points
     ground_control: bool = True
 
-    # Max allowed cloud cover percent
-    cloud_cover: float = 1.0
+    # Min allowed clear percent
+    clear_percent: float = 0.0
 
     # Stage of imagegry data
     publishing_stage: str = "finalized"
@@ -41,3 +41,6 @@ class DownloadConfig:
 
     # Number of times to retry downloading imagegry data
     download_retries_max: int = 3
+
+    # Seconds to wait before retrying
+    download_backoff: float = 1.0

@@ -1,3 +1,8 @@
+# The path to a folder of geojson grid files in the wgs84 CRS. 
 grid_dir: /Users/kyledorman/data/plant_download/test4/grids
+# The path to a folder where you want to save the data. 
+# During the download process, data will be saved to folders 
+# following the convention: `save_dir/YEAR/MONTH/GRID_ID`
 save_dir: /Users/kyledorman/data/plant_download/test4/results
+# TODO: remove this! (used for faster testing)
 coverage_count: 1

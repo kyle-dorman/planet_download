@@ -4,12 +4,17 @@ from numpy.ma.core import MaskedArray
 
 def contrast_stretch(image: np.ndarray | MaskedArray, p_low: int = 2, p_high: int = 98) -> np.ndarray:
     """Perform contrast stretching using percentiles."""
-    if isinstance(image, MaskedArray):
-        v_min, v_max = np.percentile(image.compressed(), (p_low, p_high))
-    else:
-        v_min, v_max = np.percentile(image, (p_low, p_high))
+    image = image.astype(np.float32)
+    for idx in range(image.shape[0]):
+        channel = image[idx]
+        if isinstance(channel, MaskedArray):
+            v_min, v_max = np.percentile(channel.compressed(), (p_low, p_high))
+        else:
+            v_min, v_max = np.percentile(channel, (p_low, p_high))
 
-    return np.clip((image - v_min) / (v_max - v_min), 0, 1)
+        image[idx] = np.clip((channel - v_min) / (v_max - v_min), 0, 1)
+
+    return image
 
 
 def calculate_zoom_level(bounds: list[float], map_width: int = 800) -> int:
