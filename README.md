@@ -131,7 +131,5 @@ conda activate planet_download
 ```
 
 ## TODOs
-- How to approprietly handle grids in both 10 and 11 zone (25059125, 25059125)
-    - look at results
-- talk to kate cloud filtering logic
-- Verify we only get charged for orders not UDMs
+- Am I handling grids with overlapping zones correctly?
+- Discuss cloud filtering logic changes w/Kate
