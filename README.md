@@ -107,7 +107,7 @@ python src/scripts/run.py --config-file config.yaml --year 2020 --year 2021 --ye
 ```
 This will download data for 3 years (2020, 2021, 2022) and 3 months (Set, Oct, Nov) for a total of 9 year/month combindations. You must provide at least 1 year and 1 month. 
 
-## Inspect Reuslts
+## Inspect Results
 You can inspect the results of a download using an included jupyter notebook. 
 
 Launch jupyter notebook
