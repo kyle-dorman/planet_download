@@ -8,14 +8,21 @@ from typing import AsyncIterator
 import click
 from dateutil.relativedelta import relativedelta
 from dotenv import find_dotenv, load_dotenv
-from omegaconf import OmegaConf
 from planet import DataClient, Session, data_filter
 from shapely.geometry import Polygon, shape
-from tqdm.asyncio import tqdm
+from tqdm.asyncio import tqdm as async_tqdm
 
 from src.config import DownloadConfig
 from src.grid import calculate_intersection_pct
-from src.util import asset_type_by_date, geojson_paths, retry_task, setup_logger
+from src.util import (
+    asset_type_by_date,
+    check_and_create_env,
+    create_config,
+    geojson_paths,
+    retry_task,
+    run_async_function,
+    setup_logger,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -212,10 +219,10 @@ async def download_all_udms(item_lists: list[tuple[dict, Path]], sess: Session, 
 
     # Initialize progress bars for each step
     with (
-        tqdm(total=total_assets, desc="Step 1: Getting Assets", position=0) as get_pbar,
-        tqdm(total=total_assets, desc="Step 2: Activating Assets", position=1) as activate_pbar,
-        tqdm(total=total_assets, desc="Step 3: Waiting for Assets", position=2) as wait_pbar,
-        tqdm(total=total_assets, desc="Step 4: Downloading Assets", position=3) as download_pbar,
+        async_tqdm(total=total_assets, desc="Step 1: Getting Assets", position=0) as get_pbar,
+        async_tqdm(total=total_assets, desc="Step 2: Activating Assets", position=1) as activate_pbar,
+        async_tqdm(total=total_assets, desc="Step 3: Waiting for Assets", position=2) as wait_pbar,
+        async_tqdm(total=total_assets, desc="Step 4: Downloading Assets", position=3) as download_pbar,
     ):
 
         # Dictionary to track progress of each step
@@ -243,7 +250,7 @@ async def download_all_udms(item_lists: list[tuple[dict, Path]], sess: Session, 
         for grid_id, asset_id, step, error in failures:
             logger.error(f" - Grid {grid_id} Asset {asset_id}: Failed at {step} with error: {error}")
     else:
-        logger.info("✅ All assets processed successfully!")
+        logger.info("All assets processed successfully!")
 
 
 # Gets a list of all UDMs which need to be downloaded across all grids.
@@ -295,27 +302,12 @@ async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datet
         await download_all_udms(to_download, sess, config)
 
 
-@click.command()
-@click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
-@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
-@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
-def main(
+def download_udms(
     config_file: Path,
-    month: int,
     year: int,
-):
-    config_file = Path(config_file)
-    base_config = OmegaConf.structured(DownloadConfig)
-    override_config = OmegaConf.load(config_file)
-    config: DownloadConfig = OmegaConf.merge(base_config, override_config)  # type: ignore
-
-    assert config.grid_dir.exists(), f"grid_dir {config.grid_dir} does not exist!"
-
-    save_path = config.save_dir / str(year) / str(month).zfill(2)
-    save_path.mkdir(exist_ok=True, parents=True)
-
-    # Save the configuration to a YAML file
-    OmegaConf.save(config, save_path / "config.yaml")
+    month: int,
+) -> None:
+    config, save_path = create_config(config_file, year=year, month=month)
 
     setup_logger(save_path, log_filename="download_udms.log")
 
@@ -323,12 +315,29 @@ def main(
 
     logger.info(f"Downloading UDMs for year={year} month={month} grids={config.grid_dir} to={save_path}")
 
-    asyncio.run(main_loop(config, save_path, imagery_date))
+    run_async_function(main_loop(config, save_path, imagery_date))
+
+
+@click.command()
+@click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
+@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
+@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
+def main(
+    config_file: Path,
+    year: int,
+    month: int,
+):
+    config_file = Path(config_file)
+
+    # Set the PlanetAPI Key in .env file if not set
+    check_and_create_env()
+
+    # find .env automagically by walking up directories until it's found, then
+    # load up the .env entries as environment variables
+    load_dotenv(find_dotenv(raise_error_if_not_found=True))
+
+    download_udms(config_file=config_file, month=month, year=year)
 
 
 if __name__ == "__main__":
-    # find .env automagically by walking up directories until it's found, then
-    # load up the .env entries as environment variables
-    load_dotenv(find_dotenv())
-
     main()

@@ -55,21 +55,6 @@ After cloning the repo, enter the folder
 cd planet_download
 ```
 
-### Planet API Key
-The Planet API key is loaded from a file `.env`. 
-
-Start by copying the default file
-```bash
-# Linux/Mac
-cp base.env .env
-
-# Windows
-copy base.env .env
-```
-Look up your API key from the [Planet Account Settings](https://www.planet.com/account/#/user-settings). 
-
-Edit `.env` file using a text editor and add your API key.
-
 ### Create conda environment
 ```bash
 conda env create -f environment.yml
@@ -82,42 +67,56 @@ conda env create -f environment.yml
 conda activate planet_download
 ```
 
-### Create a config file
-See the file `src/config.py` to see all configuration options. You ***MUST*** set the `grid_dir` and `save_dir` variables. See `config.yaml` for a simple example. Feel free to edit the `config.yaml` directly. 
+### Edit the config file
+See the file `src/config.py` to see all configuration options. You ***MUST*** set the `grid_dir` and `save_dir` variables. Feel free to edit the `config.yaml` directly. 
 
 `grid_dir` - The path to a folder of geojson grid files in the wgs84 CRS. 
 `save_dir` - The path to a folder where you want to save the data. During the download process, data will be saved to folders following the convention: `save_dir/YEAR/MONTH/GRID_ID`
 
-### Run download script
+### Planet API Key
+Look up your API key from the [Planet Account Settings](https://www.planet.com/account/#/user-settings). 
+
+### Option 1: Run download script via Jupyter
+1. Launch jupyter notebook
+```bash
+jupyter notebook --notebook-dir=notebooks --port=8892
+```
+2. Open the `run.ipynb`.
+3. Set the `MONTH`, `YEAR`, `CONFIG_FILE`, and `PL_API_KEY` variables. 
+4. Run the remaining cells
+
+### Option 2: Run download script via CLI
 Inpsect `run.py` script to see how it can be used.
 ```bash
-python src/run.py --help
+python src/scripts/run.py --help
 ```
 
-Download files for paritcular month/year combinations
+You will be prompted to enter your Planet API Key the first time you run the script.
+
+#### Example 1: 
+Download files for a single month/year combination
 ```bash
-python src/run.py --config-file config.yaml --year 2020 --year 2021 --year 2022 --month 09 --month 10 --month 11
+python src/scripts/run.py --config-file config.yaml --year 2022 --month 11
 ```
-The above example would download data for 3 years (2020, 2021, 2022) and 3 months (Set, Oct, Nov) for a total of 9 year/month combindations. You must provide at least 1 year and 1 month. 
+This will download data for the year 2022 and the month of November (11).
+
+#### Example 2: 
+Download files for multiple month/year combinations
+```bash
+python src/scripts/run.py --config-file config.yaml --year 2020 --year 2021 --year 2022 --month 09 --month 10 --month 11
+```
+This will download data for 3 years (2020, 2021, 2022) and 3 months (Set, Oct, Nov) for a total of 9 year/month combindations. You must provide at least 1 year and 1 month. 
 
 ## Inspect Reuslts
 You can inspect the results of a download using an included jupyter notebook. 
 
 Launch jupyter notebook
 ```bash
-conda activate planet_download
 jupyter notebook --notebook-dir=notebooks --port=8892
 ```
 Run the notebook `inspect.ipynb` to visualize the downloaded results. 
 
-If you want to inspect the results for a particular grid you will need to extract the grid intermediates by running:
-```bash
-python src/inspect_grid_outputs.py --month MONTH --year YEAR --config-file CONFIG_FILE --grid-id GRID-ID
-```
-
 ## Format code
-
-Run
 ```bash
 conda activate planet_download
 ./lint.sh
@@ -128,6 +127,7 @@ After changing the environment.yml file, run
 ```bash
 conda activate planet_download
 conda env update --file environment.yml --prune
+conda activate planet_download
 ```
 
 ### Install GDAL
@@ -137,5 +137,7 @@ Follow diriections [HERE](https://gdal.org/en/stable/download.html)
 It is unclear if this is needed!
 
 ## TODOs
-- Test on the lab computer
 - How to approprietly handle grids in both 10 and 11 zone (25059125, 25059125)
+    - look at results
+- talk to kate cloud filtering logic
+- Verify we only get charged for orders not UDMs

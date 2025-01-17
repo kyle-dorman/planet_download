@@ -4,6 +4,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from omegaconf import OmegaConf
+
+from src.config import DownloadConfig
+
+logger = logging.getLogger(__name__)
+
 
 # Get the type of Planet asset based on the date.
 # 8 band wasn't available before 2021 (I think)
@@ -71,7 +77,7 @@ def setup_logger(save_dir: Path | None = None, log_filename: str = "log.log"):
         root_logger.handlers.clear()
 
     # Create a formatter
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 
     # Console handler
     console_handler = logging.StreamHandler()
@@ -87,3 +93,60 @@ def setup_logger(save_dir: Path | None = None, log_filename: str = "log.log"):
 
     # Confirm setup
     root_logger.info("Logger initialized. Logging to console%s.", f" and {save_dir / log_filename}" if save_dir else "")
+
+
+def write_env_file(api_key: str, env_path: Path = Path(".env")) -> None:
+    """
+    Writes the provided API key to a .env file with the variable name PL_API_KEY.
+    """
+    with env_path.open("w") as file:
+        file.write(f"PL_API_KEY={api_key}\n")
+    logger.info(f"API key saved to {env_path}")
+
+
+def check_and_create_env(env_path: Path = Path(".env")) -> None:
+    """
+    Checks if the .env file exists. If not, prompts the user for an API key and writes it to the file.
+    """
+    if env_path.exists():
+        logger.info(f"🔎 {env_path} already exists. No action needed.")
+    else:
+        api_key = input("Enter your Planet API key: ").strip()
+        assert api_key, "Must pass an API Key!"
+
+        write_env_file(api_key, env_path)
+
+
+def create_config(config_file: Path, year: int, month: int) -> tuple[DownloadConfig, Path]:
+    base_config = OmegaConf.structured(DownloadConfig)
+    override_config = OmegaConf.load(config_file)
+    config: DownloadConfig = OmegaConf.merge(base_config, override_config)  # type: ignore
+
+    assert config.grid_dir.exists(), f"grid_dir {config.grid_dir} does not exist!"
+
+    save_path = config.save_dir / str(year) / str(month).zfill(2)
+    save_path.mkdir(exist_ok=True, parents=True)
+
+    # Save the configuration to a YAML file
+    OmegaConf.save(config, save_path / "config.yaml")
+
+    return config, save_path
+
+
+def run_async_function(coro):
+    """
+    Runs an async function safely in both standard scripts and Jupyter Notebooks.
+
+    Args:
+        coro: The coroutine to run.
+    """
+    try:
+        # If no event loop is running, run normally
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No event loop running, safe to use asyncio.run()
+        asyncio.run(coro)
+    else:
+        # Event loop is running (e.g., in Jupyter), so use create_task
+        task = loop.create_task(coro)
+        return task  # Optional: return task if caller wants to await it

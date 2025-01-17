@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 import click
-from dotenv import find_dotenv, load_dotenv
+import tqdm
 from omegaconf import OmegaConf
 
 from src.config import DownloadConfig
@@ -12,7 +12,7 @@ from src.grid import (
     open_and_convert_grid,
     reproject_and_crop_to_grid,
 )
-from src.util import setup_logger, tif_paths
+from src.util import create_config, setup_logger, tif_paths
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +42,13 @@ def reproject_and_crop_udms(
     reprojected_udm_dir.mkdir(exist_ok=True)
 
     # Crop the UDMs
-    logger.info("Saving cropped UDMs")
-    for udm_path in udm_paths:
+    logger.info("Reprojecting all UDMs")
+    for udm_path in tqdm.tqdm(udm_paths):
         cropped_path = cropped_dir / udm_path.name
         reprojected_path = reprojected_udm_dir / udm_path.name
+        if cropped_path.exists() and reprojected_path.exists():
+            continue
+
         reproject_and_crop_to_grid(
             tif_path=udm_path,
             grid_geom=grid_transformed,
@@ -83,10 +86,13 @@ def reproject_and_crop_download_outputs(results_grid_dir: Path, grid_path: Path,
         reprojected_udm_dir.mkdir(exist_ok=True)
 
         # Crop the UDMs
-        logger.info(f"Repojecting and cropping {name}s")
-        for tif_path in file_paths:
+        logger.info(f"Reprojecting selected {name}s")
+        for tif_path in tqdm.tqdm(file_paths):
             cropped_path = cropped_dir / tif_path.name
             reprojected_path = reprojected_udm_dir / tif_path.name
+
+            if cropped_path.exists() and reprojected_path.exists():
+                continue
 
             # Only crop the first channel for the UDM, otherwise all the channels
             channels = 1 if name == "udm" else None
@@ -100,25 +106,13 @@ def reproject_and_crop_download_outputs(results_grid_dir: Path, grid_path: Path,
             )
 
 
-# Create the intermediate outputs neccessary to inspect a grid's UDMs and downloaded data
-@click.command()
-@click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
-@click.option("-g", "--grid-id", type=str)
-@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
-@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
-def main(
+def extract_grid_intermediates(
     config_file: Path,
     grid_id: str,
-    month: int,
     year: int,
-):
-    config_file = Path(config_file)
-    base_config = OmegaConf.structured(DownloadConfig)
-    override_config = OmegaConf.load(config_file)
-    config: DownloadConfig = OmegaConf.merge(base_config, override_config)  # type: ignore
-
-    save_path = config.save_dir / str(year) / str(month).zfill(2)
-    save_path.mkdir(exist_ok=True, parents=True)
+    month: int,
+) -> None:
+    config, save_path = create_config(config_file, year=year, month=month)
 
     setup_logger()
 
@@ -131,12 +125,25 @@ def main(
     reproject_and_crop_download_outputs(results_grid_dir, grid_path, config)
     reproject_and_crop_udms(results_grid_dir, grid_path, config)
 
+
+# Create the intermediate outputs neccessary to inspect a grid's UDMs and downloaded data
+@click.command()
+@click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
+@click.option("-g", "--grid-id", type=str)
+@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
+@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
+def main(
+    config_file: Path,
+    grid_id: str,
+    year: int,
+    month: int,
+):
+    config_file = Path(config_file)
+
+    extract_grid_intermediates(config_file=config_file, grid_id=grid_id, month=month, year=year)
+
     logger.info("Done!")
 
 
 if __name__ == "__main__":
-    # find .env automagically by walking up directories until it's found, then
-    # load up the .env entries as environment variables
-    load_dotenv(find_dotenv())
-
     main()

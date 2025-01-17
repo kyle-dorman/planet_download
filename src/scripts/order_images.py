@@ -8,12 +8,20 @@ from pathlib import Path
 import click
 import pandas as pd
 from dotenv import find_dotenv, load_dotenv
-from omegaconf import OmegaConf
 from planet import OrdersClient, Session, order_request
-from tqdm.asyncio import tqdm
+from tqdm import tqdm
+from tqdm.asyncio import tqdm as async_tqdm
 
 from src.config import DownloadConfig
-from src.util import geojson_paths, product_bundle_by_date, retry_task, setup_logger
+from src.util import (
+    check_and_create_env,
+    create_config,
+    geojson_paths,
+    product_bundle_by_date,
+    retry_task,
+    run_async_function,
+    setup_logger,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,13 +97,14 @@ def create_order_requests(
 ) -> list[tuple[dict, Path]]:
     order_requests = []
 
-    for grid_path in grid_paths:
+    for grid_path in tqdm(grid_paths):
         grid_id = grid_path.stem
 
         assert grid_path.suffix == ".geojson", f"Invalid path, {grid_path.name}"
 
         grid_dir = save_dir / grid_id
 
+        # If the order.json file exists, then we have already scheduled this order.
         if (grid_dir / "order.json").exists():
             continue
 
@@ -104,12 +113,17 @@ def create_order_requests(
             logger.warning(f"Missing item download list for {grid_id}")
             continue
 
+        # Get the list of item_ids to download
         udm_df = pd.read_csv(item_ids_path)
         item_ids = udm_df[udm_df.include_image]["asset_id"].tolist()
+
+        # Load the grid AOI
         with open(grid_path) as file:
             grid_geojson = json.load(file)
 
         product_bundle = product_bundle_by_date(imagery_date)
+
+        # Create the order request
         order_request = build_order_request(
             grid_path.stem,
             item_ids,
@@ -129,11 +143,12 @@ async def create_orders(
     sess: Session, grid_paths: list[Path], save_dir: Path, imagery_date: datetime, config: DownloadConfig
 ):
     # Create the order requests objects
+    logger.info("Creating order requests")
     order_requests_to_create = create_order_requests(grid_paths, save_dir, imagery_date, config)
 
     logger.info(f"Starting {len(order_requests_to_create)} order requests")
 
-    # loop through and download all the UDM2 files for the given date and grid
+    # Schedule the orders
     try:
         order_tasks = [asyncio.create_task(create_order(sess, request)) for request, _ in order_requests_to_create]
         orders = await asyncio.gather(*order_tasks)
@@ -141,6 +156,8 @@ async def create_orders(
         logger.error(f"Error creating order for {imagery_date}")
         logger.exception(e)
         raise e
+
+    logger.info("Saving orders")
 
     # Save the order results to a json file per grid
     for order, (_, grid_name) in zip(orders, order_requests_to_create):
@@ -154,12 +171,6 @@ async def download_order(
 ) -> tuple[str, str, str] | None:
     grid_id = save_dir.stem
     order_id = str(order["id"])
-
-    # Exit early if order already exists.
-    if (save_dir / order_id).exists():
-        for v in step_progress_bars.values():
-            v.update(1)
-        return
 
     cl = OrdersClient(sess)
 
@@ -186,14 +197,23 @@ async def download_order(
 
 # Download an order and retry failed downloads a fixed number of times.
 async def download_orders(sess: Session, orders: list[tuple[dict, Path]], config: DownloadConfig) -> None:
-    logger.info(f"Downloading {len(orders)} orders")
+    # Skip orders that were previously downloaded
+    orders_to_download = []
+    for order, output_path in orders:
+        order_id = str(order["id"])
+        order_dir = output_path / order_id
+        # Exit early if order already exists.
+        if order_dir.exists():
+            continue
+        orders_to_download.append((order, output_path))
 
-    total_assets = len(orders)
+    total_assets = len(orders_to_download)
+    logger.info(f"Downloading {total_assets} orders")
 
     # Initialize progress bars for each step
     with (
-        tqdm(total=total_assets, desc="Step 1: Wait for Order", position=0) as wait_pbar,
-        tqdm(total=total_assets, desc="Step 2: Downloading Order", position=1) as download_pbar,
+        async_tqdm(total=total_assets, desc="Step 1: Wait for Order", position=0) as wait_pbar,
+        async_tqdm(total=total_assets, desc="Step 2: Downloading Order", position=1) as download_pbar,
     ):
 
         # Dictionary to track progress of each step
@@ -205,7 +225,7 @@ async def download_orders(sess: Session, orders: list[tuple[dict, Path]], config
         # Run all tasks and collect results
         tasks = [
             asyncio.create_task(download_order(sess, order, output_path, config, step_progress_bars))
-            for order, output_path in orders
+            for order, output_path in orders_to_download
         ]
 
         # Gather all results (None if success, tuple if failure)
@@ -219,7 +239,7 @@ async def download_orders(sess: Session, orders: list[tuple[dict, Path]], config
         for grid_id, step, error in failures:
             logger.error(f" - Grid {grid_id}: Failed at {step} with error: {error}")
     else:
-        logger.info("✅ All downloads processed successfully!")
+        logger.info("All downloads processed successfully!")
 
 
 # Main loop. Create order requests and download the orders when ready.
@@ -229,7 +249,7 @@ async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datet
     async with Session() as sess:
         await create_orders(sess, grid_paths, save_path, imagery_date, config)
 
-        logger.info("Downloading image data")
+        logger.debug("Downloading image data")
 
         # Load the orders from disk
         all_orders = []
@@ -247,13 +267,27 @@ async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datet
         # Download all orders
         await download_orders(sess, all_orders, config)
 
+    logger.info("Unzipping Downloads")
+
     # Unzip the downloads and the remove the zip file for each grid.
-    for grid_path in grid_paths:
+    for grid_path in tqdm(grid_paths):
         results_grid_dir = save_path / grid_path.stem
         if not results_grid_dir.exists():
             logger.warning(f"No results directory for {grid_path.stem}")
             continue
         unzip_downloads(results_grid_dir)
+
+
+def order_images(config_file: Path, year: int, month: int) -> None:
+    config, save_path = create_config(config_file, year=year, month=month)
+
+    setup_logger(save_path, log_filename="order_images.log")
+
+    logger.info(f"Ordering images for year={year} month={month} grids={config.grid_dir} to={save_path}")
+
+    imagery_date = datetime(year, month, 1)
+
+    run_async_function(main_loop(config, save_path, imagery_date))
 
 
 @click.command()
@@ -262,32 +296,20 @@ async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datet
 @click.option("-m", "--month", type=click.IntRange(min=1, max=12))
 def main(
     config_file: Path,
-    month: int,
     year: int,
+    month: int,
 ):
     config_file = Path(config_file)
-    base_config = OmegaConf.structured(DownloadConfig)
-    override_config = OmegaConf.load(config_file)
-    config: DownloadConfig = OmegaConf.merge(base_config, override_config)  # type: ignore
 
-    save_path = config.save_dir / str(year) / str(month).zfill(2)
-    save_path.mkdir(exist_ok=True, parents=True)
+    # Set the PlanetAPI Key in .env file if not set
+    check_and_create_env()
 
-    # Save the configuration to a YAML file
-    OmegaConf.save(config, save_path / "config.yaml")
+    # find .env automagically by walking up directories until it's found, then
+    # load up the .env entries as environment variables
+    load_dotenv(find_dotenv(raise_error_if_not_found=True))
 
-    setup_logger(save_path, log_filename="order_images.log")
-
-    logger.info(f"Ordering images for year={year} month={month} grids={config.grid_dir} to={save_path}")
-
-    imagery_date = datetime(year, month, 1)
-
-    asyncio.run(main_loop(config, save_path, imagery_date))
+    order_images(config_file=config_file, month=month, year=year)
 
 
 if __name__ == "__main__":
-    # find .env automagically by walking up directories until it's found, then
-    # load up the .env entries as environment variables
-    load_dotenv(find_dotenv())
-
     main()

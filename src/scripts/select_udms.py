@@ -6,8 +6,7 @@ import click
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from dotenv import find_dotenv, load_dotenv
-from omegaconf import OmegaConf
+import tqdm
 
 from src.config import DownloadConfig
 from src.grid import (
@@ -18,7 +17,7 @@ from src.grid import (
     open_and_convert_grid,
     reproject_and_crop_to_grid,
 )
-from src.util import cleaned_asset_id, geojson_paths, setup_logger, tif_paths
+from src.util import cleaned_asset_id, create_config, geojson_paths, setup_logger, tif_paths
 
 logger = logging.getLogger(__name__)
 
@@ -93,47 +92,40 @@ def calculate_udm_coverages(
 
         # Determine how much of the image counts would be imporoved by this image
         pct_adding = should_update.sum() / grid_pixel_area
+        include_image = pct_adding > config.percent_added
 
+        # Save stats for all UDMs
         item_coverage.append(
             {
                 "asset_id": cleaned_asset_id(udm_paths[int(idx)].stem),
                 "clear_coverge_pct": clear_coverage,
                 "intersection_pct": intersection_pct,
                 "pct_adding": pct_adding,
-                "include_image": pct_adding > config.percent_added,
+                "include_image": include_image,
             }
         )
+
+        # Update counts for valid image pixels if the image will be inlcuded
+        if include_image:
+            coverage_count[to_add] += 1
 
     return pd.DataFrame(item_coverage)
 
 
-@click.command()
-@click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
-@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
-@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
-def main(
+def select_udms(
     config_file: Path,
-    month: int,
     year: int,
-):
-    config_file = Path(config_file)
-    base_config = OmegaConf.structured(DownloadConfig)
-    override_config = OmegaConf.load(config_file)
-    config: DownloadConfig = OmegaConf.merge(base_config, override_config)  # type: ignore
-
-    save_path = config.save_dir / str(year) / str(month).zfill(2)
-    save_path.mkdir(exist_ok=True, parents=True)
-
-    # Save the configuration to a YAML file
-    OmegaConf.save(config, save_path / "config.yaml")
+    month: int,
+) -> None:
+    config, save_path = create_config(config_file, year=year, month=month)
 
     setup_logger(save_path, log_filename="select_udms.log")
 
     logger.info(f"Selecting best UDMs for year={year} month={month} grids={config.grid_dir} to={save_path}")
 
-    for grid_path in geojson_paths(config.grid_dir):
+    for grid_path in tqdm.tqdm(geojson_paths(config.grid_dir)):
         grid_id = grid_path.stem
-        logger.info(f"Selecting best UDMs for {grid_id}")
+        logger.debug(f"Selecting best UDMs for {grid_id}")
 
         results_grid_dir = save_path / grid_id
         grid_udm_dir = results_grid_dir / "udm"
@@ -143,18 +135,28 @@ def main(
 
         csv_path = results_grid_dir / "images_to_download.csv"
         if csv_path.exists():
-            logger.info(f"Download list exists for {grid_id}. Skipping...")
+            logger.debug(f"Download list exists for {grid_id}. Skipping...")
             continue
 
         coverage_df = calculate_udm_coverages(results_grid_dir, grid_path, config)
         coverage_df.to_csv(csv_path, index=False)
 
+
+@click.command()
+@click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
+@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
+@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
+def main(
+    config_file: Path,
+    year: int,
+    month: int,
+):
+    config_file = Path(config_file)
+
+    select_udms(config_file=config_file, month=month, year=year)
+
     logger.info("Done!")
 
 
 if __name__ == "__main__":
-    # find .env automagically by walking up directories until it's found, then
-    # load up the .env entries as environment variables
-    load_dotenv(find_dotenv())
-
     main()

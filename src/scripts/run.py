@@ -3,6 +3,9 @@ import sys
 from pathlib import Path
 
 import click
+from dotenv import find_dotenv, load_dotenv
+
+from src.util import check_and_create_env
 
 
 # Helper function to run each script
@@ -36,18 +39,25 @@ def main(config_file: Path, year: list[int], month: list[int]) -> None:
     assert len(year) >= 1, "Must include at least 1 year"
     assert len(month) >= 1, "Must include at least 1 month"
 
+    # Set the PlanetAPI Key in .env file if not set
+    check_and_create_env()
+
+    # find .env automagically by walking up directories until it's found, then
+    # load up the .env entries as environment variables
+    load_dotenv(find_dotenv(raise_error_if_not_found=True))
+
     # List of scripts to run
-    scripts = ["src/download_udms.py", "src/select_udms.py", "src/order_images.py"]
+    scripts = ["src/scripts/download_udms.py", "src/scripts/select_udms.py", "src/scripts/order_images.py"]
 
     # Loop through scripts, years, and months
     for script in scripts:
         for y in year:
             for m in month:
                 click.secho(f"🚀 Running {script} for Year: {y}, Month: {m}", fg="cyan")
-                run_script(script, y, m, config_file)
-                click.secho(f"✅ Finished Running {script} for Year: {y}, Month: {m}", fg="yellow")
+                run_script(script_path=script, year=y, month=m, config_file=config_file)
+                click.secho(f"Finished Running {script} for Year: {y}, Month: {m}", fg="green")
 
-    click.secho("✅ All tasks completed successfully!", fg="green")
+    click.secho("All tasks completed successfully!", fg="green")
 
 
 if __name__ == "__main__":
