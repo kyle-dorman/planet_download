@@ -130,12 +130,6 @@ conda env update --file environment.yml --prune
 conda activate planet_download
 ```
 
-### Install GDAL
-
-Follow diriections [HERE](https://gdal.org/en/stable/download.html)
-
-It is unclear if this is needed!
-
 ## TODOs
 - How to approprietly handle grids in both 10 and 11 zone (25059125, 25059125)
     - look at results
