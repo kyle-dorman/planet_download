@@ -10,7 +10,6 @@ from dateutil.relativedelta import relativedelta
 from dotenv import find_dotenv, load_dotenv
 from planet import DataClient, Session, data_filter
 from shapely.geometry import Polygon, shape
-from tqdm.asyncio import tqdm as async_tqdm
 
 from src.config import DownloadConfig
 from src.grid import calculate_intersection_pct
@@ -19,6 +18,8 @@ from src.util import (
     check_and_create_env,
     create_config,
     geojson_paths,
+    get_tqdm,
+    is_notebook,
     retry_task,
     run_async_function,
     setup_logger,
@@ -177,6 +178,7 @@ async def download_udm(
     try:
         asset_desc = await retry_task(get_asset, config.download_retries_max, config.download_backoff)
     except Exception as e:
+        step_progress_bars["get_asset"].update(1)
         return (grid_id, udm_id, "get_asset", str(e))
     step_progress_bars["get_asset"].update(1)
 
@@ -187,6 +189,7 @@ async def download_udm(
     try:
         await retry_task(activate_asset, config.download_retries_max, config.download_backoff)
     except Exception as e:
+        step_progress_bars["activate_asset"].update(1)
         return (grid_id, udm_id, "activate_asset", str(e))
     step_progress_bars["activate_asset"].update(1)
 
@@ -197,6 +200,7 @@ async def download_udm(
     try:
         asset = await retry_task(wait_asset, config.download_retries_max, config.download_backoff)
     except Exception as e:
+        step_progress_bars["wait_asset"].update(1)
         return (grid_id, udm_id, "wait_asset", str(e))
     step_progress_bars["wait_asset"].update(1)
 
@@ -207,22 +211,28 @@ async def download_udm(
     try:
         await retry_task(download_asset, config.download_retries_max, config.download_backoff)
     except Exception as e:
+        step_progress_bars["download_asset"].update(1)
         return (grid_id, udm_id, "download_asset", str(e))
     step_progress_bars["download_asset"].update(1)
 
 
 # Asynchronously downloads all udm assets for the given list of items.
-async def download_all_udms(item_lists: list[tuple[dict, Path]], sess: Session, config: DownloadConfig) -> None:
+async def download_all_udms(
+    item_lists: list[tuple[dict, Path]], sess: Session, config: DownloadConfig, in_notebook: bool
+) -> None:
     logger.info(f"Downloading {len(item_lists)} udm items")
 
     total_assets = len(item_lists)
 
+    # Get notebook vs async progress bar class
+    tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
+
     # Initialize progress bars for each step
     with (
-        async_tqdm(total=total_assets, desc="Step 1: Getting Assets", position=0) as get_pbar,
-        async_tqdm(total=total_assets, desc="Step 2: Activating Assets", position=1) as activate_pbar,
-        async_tqdm(total=total_assets, desc="Step 3: Waiting for Assets", position=2) as wait_pbar,
-        async_tqdm(total=total_assets, desc="Step 4: Downloading Assets", position=3) as download_pbar,
+        tqdm(total=total_assets, desc="Step 1: Getting Assets", position=0, dynamic_ncols=True) as get_pbar,
+        tqdm(total=total_assets, desc="Step 2: Activating Assets", position=1, dynamic_ncols=True) as activate_pbar,
+        tqdm(total=total_assets, desc="Step 3: Waiting for Assets", position=2, dynamic_ncols=True) as wait_pbar,
+        tqdm(total=total_assets, desc="Step 4: Downloading Assets", position=3, dynamic_ncols=True) as download_pbar,
     ):
 
         # Dictionary to track progress of each step
@@ -294,19 +304,19 @@ async def get_download_list(
 
 
 # Main loop. Download all overlapping UDMs for a given date and directory of grids.
-async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datetime) -> None:
+async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datetime, in_notebook: bool) -> None:
     async with Session() as sess:
         to_download = await get_download_list(sess, config, save_path, imagery_date)
 
         # loop through and download all the UDM2 files for the given date and grid
-        await download_all_udms(to_download, sess, config)
+        await download_all_udms(to_download, sess, config, in_notebook)
 
 
 def download_udms(
     config_file: Path,
     year: int,
     month: int,
-) -> None:
+):
     config, save_path = create_config(config_file, year=year, month=month)
 
     setup_logger(save_path, log_filename="download_udms.log")
@@ -315,7 +325,9 @@ def download_udms(
 
     logger.info(f"Downloading UDMs for year={year} month={month} grids={config.grid_dir} to={save_path}")
 
-    run_async_function(main_loop(config, save_path, imagery_date))
+    in_notebook = is_notebook()
+
+    return run_async_function(main_loop(config, save_path, imagery_date, in_notebook))
 
 
 @click.command()

@@ -6,7 +6,6 @@ import click
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import tqdm
 
 from src.config import DownloadConfig
 from src.grid import (
@@ -17,7 +16,7 @@ from src.grid import (
     open_and_convert_grid,
     reproject_and_crop_to_grid,
 )
-from src.util import cleaned_asset_id, create_config, geojson_paths, setup_logger, tif_paths
+from src.util import cleaned_asset_id, create_config, geojson_paths, get_tqdm, is_notebook, setup_logger, tif_paths
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +122,11 @@ def select_udms(
 
     logger.info(f"Selecting best UDMs for year={year} month={month} grids={config.grid_dir} to={save_path}")
 
-    for grid_path in tqdm.tqdm(geojson_paths(config.grid_dir)):
+    in_notebook = is_notebook()
+
+    tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
+
+    for grid_path in tqdm(geojson_paths(config.grid_dir)):
         grid_id = grid_path.stem
         logger.debug(f"Selecting best UDMs for {grid_id}")
 

@@ -2,9 +2,12 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Type
 
 from omegaconf import OmegaConf
+from tqdm.asyncio import tqdm_asyncio
+from tqdm.notebook import tqdm_notebook
+from tqdm.std import tqdm
 
 from src.config import DownloadConfig
 
@@ -150,3 +153,25 @@ def run_async_function(coro):
         # Event loop is running (e.g., in Jupyter), so use create_task
         task = loop.create_task(coro)
         return task  # Optional: return task if caller wants to await it
+
+
+# Determine if we are in a notebook or not. Only works outside an eventloop.
+def is_notebook() -> bool:
+    try:
+        # If no event loop is running, run normally
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No event loop running, we are NOT in a notebook
+        return False
+    else:
+        return True
+
+
+# Load the correct progress bar class based on the run context (notebook vs CLI)
+def get_tqdm(use_async: bool, in_notebook: bool) -> Type[tqdm]:
+    if in_notebook:
+        return tqdm_notebook
+    elif use_async:
+        return tqdm_asyncio
+    else:
+        return tqdm

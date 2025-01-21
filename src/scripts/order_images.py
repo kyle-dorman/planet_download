@@ -9,14 +9,14 @@ import click
 import pandas as pd
 from dotenv import find_dotenv, load_dotenv
 from planet import OrdersClient, Session, order_request
-from tqdm import tqdm
-from tqdm.asyncio import tqdm as async_tqdm
 
 from src.config import DownloadConfig
 from src.util import (
     check_and_create_env,
     create_config,
     geojson_paths,
+    get_tqdm,
+    is_notebook,
     product_bundle_by_date,
     retry_task,
     run_async_function,
@@ -93,10 +93,11 @@ async def create_order(sess: Session, request: dict) -> dict:
 # Create list of orders to create across all grid paths.
 # Skip grids that have existing order.json files.
 def create_order_requests(
-    grid_paths: list[Path], save_dir: Path, imagery_date: datetime, config: DownloadConfig
+    grid_paths: list[Path], save_dir: Path, imagery_date: datetime, config: DownloadConfig, in_notebook: bool
 ) -> list[tuple[dict, Path]]:
     order_requests = []
 
+    tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
     for grid_path in tqdm(grid_paths):
         grid_id = grid_path.stem
 
@@ -140,11 +141,16 @@ def create_order_requests(
 
 # Create order requests and issue them for all grid paths. Save results to a file.
 async def create_orders(
-    sess: Session, grid_paths: list[Path], save_dir: Path, imagery_date: datetime, config: DownloadConfig
+    sess: Session,
+    grid_paths: list[Path],
+    save_dir: Path,
+    imagery_date: datetime,
+    config: DownloadConfig,
+    in_notebook: bool,
 ):
     # Create the order requests objects
     logger.info("Creating order requests")
-    order_requests_to_create = create_order_requests(grid_paths, save_dir, imagery_date, config)
+    order_requests_to_create = create_order_requests(grid_paths, save_dir, imagery_date, config, in_notebook)
 
     logger.info(f"Starting {len(order_requests_to_create)} order requests")
 
@@ -196,7 +202,9 @@ async def download_order(
 
 
 # Download an order and retry failed downloads a fixed number of times.
-async def download_orders(sess: Session, orders: list[tuple[dict, Path]], config: DownloadConfig) -> None:
+async def download_orders(
+    sess: Session, orders: list[tuple[dict, Path]], config: DownloadConfig, in_notebook: bool
+) -> None:
     # Skip orders that were previously downloaded
     orders_to_download = []
     for order, output_path in orders:
@@ -211,9 +219,10 @@ async def download_orders(sess: Session, orders: list[tuple[dict, Path]], config
     logger.info(f"Downloading {total_assets} orders")
 
     # Initialize progress bars for each step
+    tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
     with (
-        async_tqdm(total=total_assets, desc="Step 1: Wait for Order", position=0) as wait_pbar,
-        async_tqdm(total=total_assets, desc="Step 2: Downloading Order", position=1) as download_pbar,
+        tqdm(total=total_assets, desc="Step 1: Wait for Order", position=0) as wait_pbar,
+        tqdm(total=total_assets, desc="Step 2: Downloading Order", position=1) as download_pbar,
     ):
 
         # Dictionary to track progress of each step
@@ -243,11 +252,11 @@ async def download_orders(sess: Session, orders: list[tuple[dict, Path]], config
 
 
 # Main loop. Create order requests and download the orders when ready.
-async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datetime) -> None:
+async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datetime, in_notebook: bool) -> None:
     grid_paths = geojson_paths(config.grid_dir)
 
     async with Session() as sess:
-        await create_orders(sess, grid_paths, save_path, imagery_date, config)
+        await create_orders(sess, grid_paths, save_path, imagery_date, config, in_notebook)
 
         logger.debug("Downloading image data")
 
@@ -265,12 +274,13 @@ async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datet
                 all_orders.append((order, grid_dir))
 
         # Download all orders
-        await download_orders(sess, all_orders, config)
+        await download_orders(sess, all_orders, config, in_notebook)
 
     logger.info("Unzipping Downloads")
 
     # Unzip the downloads and the remove the zip file for each grid.
-    for grid_path in tqdm(grid_paths):
+    tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
+    for grid_path in tqdm(grid_paths, dynamic_ncols=True):
         results_grid_dir = save_path / grid_path.stem
         if not results_grid_dir.exists():
             logger.warning(f"No results directory for {grid_path.stem}")
@@ -278,7 +288,7 @@ async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datet
         unzip_downloads(results_grid_dir)
 
 
-def order_images(config_file: Path, year: int, month: int) -> None:
+def order_images(config_file: Path, year: int, month: int):
     config, save_path = create_config(config_file, year=year, month=month)
 
     setup_logger(save_path, log_filename="order_images.log")
@@ -287,7 +297,9 @@ def order_images(config_file: Path, year: int, month: int) -> None:
 
     imagery_date = datetime(year, month, 1)
 
-    run_async_function(main_loop(config, save_path, imagery_date))
+    in_notebook = is_notebook()
+
+    return run_async_function(main_loop(config, save_path, imagery_date, in_notebook))
 
 
 @click.command()

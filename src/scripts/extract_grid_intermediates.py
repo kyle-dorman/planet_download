@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 
 import click
-import tqdm
 from omegaconf import OmegaConf
 
 from src.config import DownloadConfig
@@ -12,7 +11,7 @@ from src.grid import (
     open_and_convert_grid,
     reproject_and_crop_to_grid,
 )
-from src.util import create_config, setup_logger, tif_paths
+from src.util import create_config, get_tqdm, is_notebook, setup_logger, tif_paths
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +42,8 @@ def reproject_and_crop_udms(
 
     # Crop the UDMs
     logger.info("Reprojecting all UDMs")
-    for udm_path in tqdm.tqdm(udm_paths):
+    tqdm = get_tqdm(use_async=False, in_notebook=is_notebook())
+    for udm_path in tqdm(udm_paths):
         cropped_path = cropped_dir / udm_path.name
         reprojected_path = reprojected_udm_dir / udm_path.name
         if cropped_path.exists() and reprojected_path.exists():
@@ -87,7 +87,8 @@ def reproject_and_crop_download_outputs(results_grid_dir: Path, grid_path: Path,
 
         # Crop the UDMs
         logger.info(f"Reprojecting selected {name}s")
-        for tif_path in tqdm.tqdm(file_paths):
+        tqdm = get_tqdm(use_async=False, in_notebook=is_notebook())
+        for tif_path in tqdm(file_paths):
             cropped_path = cropped_dir / tif_path.name
             reprojected_path = reprojected_udm_dir / tif_path.name
 
