@@ -17,7 +17,6 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
-    product_bundle_by_date,
     retry_task,
     run_async_function,
     setup_logger,
@@ -122,7 +121,7 @@ def create_order_requests(
         with open(grid_path) as file:
             grid_geojson = json.load(file)
 
-        product_bundle = product_bundle_by_date(imagery_date)
+        product_bundle = config.asset_type.product_bundle_string(imagery_date)
 
         # Create the order request
         order_request = build_order_request(

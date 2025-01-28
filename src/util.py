@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Type
 
@@ -12,29 +11,6 @@ from tqdm.std import tqdm
 from src.config import DownloadConfig
 
 logger = logging.getLogger(__name__)
-
-
-# Get the type of Planet asset based on the date.
-# 8 band wasn't available before 2021 (I think)
-def asset_type_by_date(startdate: datetime) -> str:
-    # for years before 2021, include 4-band imagery
-    if startdate.year <= 2020:
-        return "ortho_analytic_4b_sr"
-    # for 2020 and years after, include 8-band imagery
-    else:
-        return "ortho_analytic_8b_sr"
-
-
-# Get the type of Planet product bundle based on the date.
-# 8 band wasn't available before 2021 (I think)
-def product_bundle_by_date(startdate: datetime) -> str:
-    # for years before 2021, include 4-band imagery
-    if startdate.year <= 2020:
-        return "analytic_sr_udm2"
-
-    # for 2020 and years after, include 8-band imagery
-    else:
-        return "analytic_8b_sr_udm2"
 
 
 def tif_paths(directory: Path) -> list[Path]:

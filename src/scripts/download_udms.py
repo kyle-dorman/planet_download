@@ -14,7 +14,6 @@ from shapely.geometry import Polygon, shape
 from src.config import DownloadConfig
 from src.grid import calculate_intersection_pct
 from src.util import (
-    asset_type_by_date,
     check_and_create_env,
     create_config,
     geojson_paths,
@@ -69,7 +68,7 @@ def create_search_filter(grid_path: Path, min_acquired: datetime, config: Downlo
     )
 
     # Asset filter
-    asset_type = asset_type_by_date(min_acquired)
+    asset_type = config.asset_type.planet_asset_string(min_acquired)
     superdove_filter = data_filter.asset_filter([asset_type])
 
     # Has ground control points
