@@ -168,10 +168,12 @@ async def download_udm(
 
     cl = DataClient(sess)
 
+    asset_type_id = config.asset_type.udm_asset_string()
+
     # Get Asset
     async def get_asset():
         return await cl.get_asset(
-            item_type_id=order["properties"]["item_type"], item_id=udm_id, asset_type_id=config.udm_asset_type
+            item_type_id=order["properties"]["item_type"], item_id=udm_id, asset_type_id=asset_type_id
         )
 
     try:

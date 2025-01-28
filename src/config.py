@@ -15,6 +15,14 @@ class AssetType(Enum):
     ortho = "ortho"
     basic = "basic"
 
+    def udm_asset_string(self) -> str:
+        if self == AssetType.basic:
+            return "basic_udm2"
+        elif self in [AssetType.ortho, AssetType.ortho_sr]:
+            return "ortho_udm2"
+        else:
+            raise RuntimeError(f"Unexpected AssetType {self}")
+
     def planet_asset_string(self, capture_datetime: datetime) -> str:
         num_bands = num_bands_from_datetime(capture_datetime)
 
@@ -53,18 +61,6 @@ class AssetType(Enum):
             raise RuntimeError(f"Unexpected AssetType {self}")
 
 
-# Get the type of Planet product bundle based on the date.
-# 8 band wasn't available before 2021 (I think)
-def product_bundle_by_date(startdate: datetime) -> str:
-    # for years before 2021, include 4-band imagery
-    if startdate.year <= 2020:
-        return "analytic_sr_udm2"
-
-    # for 2020 and years after, include 8-band imagery
-    else:
-        return "analytic_8b_sr_udm2"
-
-
 @dataclass
 class DownloadConfig:
     # Path the directory of grid geojson files
@@ -76,10 +72,7 @@ class DownloadConfig:
     item_type: str = "PSScene"
 
     # Asset Type
-    asset_type = AssetType.ortho_sr
-
-    # Name of UDM asset
-    udm_asset_type: str = "ortho_udm2"
+    asset_type: AssetType = AssetType.ortho_sr
 
     # Base name for Planet UDM search requests
     udm_search_name: str = "udm2_search"
