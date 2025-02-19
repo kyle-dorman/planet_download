@@ -103,3 +103,6 @@ class DownloadConfig:
 
     # Seconds to wait before retrying
     download_backoff: float = 1.0
+
+    # Only include one image per day unless there are less than coverage_count and it is needed.
+    skip_same_day: bool = True

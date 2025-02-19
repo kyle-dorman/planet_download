@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Type
 
@@ -13,6 +15,38 @@ from src.config import DownloadConfig
 logger = logging.getLogger(__name__)
 
 
+def match_tif_path(filepath: Path) -> re.Match[str]:
+    #: Regular expression used to extract info from planet filename.
+    # <acquisition date>_<acquisition time>_<satellite_id>_<productLevel>_<bandProduct>.<extension>
+    # 20221001_175121_27_2460_3B_udm2.tif
+    filename_regex = r"""
+    (?P<date>\d{8}_\d{6}_\d{2})_     # Acquisition date (YYYYMMDD_HHMMSS_xx)
+    (?P<satellite_id>\w{4})_         # Satellite ID (4 characters)
+    (?P<product_level>\w{2})_        # Product level (2 digits)
+    (?P<band_product>[\w]+)            # Band product (letters or digits)
+    \.(?P<extension>\w+)             # Rest of the file info (no periods)
+    """
+
+    filename_regex = re.compile(filename_regex, re.VERBOSE)
+    match = re.match(filename_regex, filepath.name)
+    if match is None:
+        raise RuntimeError(f"Could not parse tif filename {filepath.name}")
+
+    return match
+
+
+def parse_tif_path(filepath: Path) -> datetime:
+    #: Date format string used to parse date from filename.
+    date_format = "%Y%m%d_%H%M%S_%f"
+
+    match = match_tif_path(filepath)
+
+    datestr = match.group("date")
+    tif_datetime = datetime.strptime(datestr, date_format)
+
+    return tif_datetime
+
+
 def tif_paths(directory: Path) -> list[Path]:
     return sorted([pth for pth in directory.iterdir() if pth.suffix == ".tif"])
 
@@ -23,8 +57,13 @@ def geojson_paths(directory: Path) -> list[Path]:
 
 # strip the _3B_udm2 from the file name
 # e.g. 20230901_182511_53_2486_3B_udm2.tif
-def cleaned_asset_id(udm_asset_id: str) -> str:
-    return "_".join(udm_asset_id.split("_")[:4])
+def cleaned_asset_id(filepath: Path) -> str:
+    match = match_tif_path(filepath)
+
+    date = match.group("date")
+    satellite_id = match.group("satellite_id")
+
+    return date + "_" + satellite_id
 
 
 # Retry wrapper around an async function that may fail

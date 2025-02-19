@@ -1,5 +1,6 @@
 import logging
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -16,9 +17,70 @@ from src.grid import (
     open_and_convert_grid,
     reproject_and_crop_to_grid,
 )
-from src.util import cleaned_asset_id, create_config, geojson_paths, get_tqdm, is_notebook, setup_logger, tif_paths
+from src.util import (
+    cleaned_asset_id,
+    create_config,
+    geojson_paths,
+    get_tqdm,
+    is_notebook,
+    parse_tif_path,
+    setup_logger,
+    tif_paths,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def update_coverage(
+    coverage_order: list[int],
+    coverages: list[tuple[np.ndarray, float, float, datetime]],
+    udm_paths: list[Path],
+    coverage_count: np.ndarray,
+    grid_pixel_area: float,
+    skip_same_day: bool,
+    config: DownloadConfig,
+) -> list[dict]:
+    item_coverage = []
+    dates_added = set()
+
+    for idx in coverage_order:
+        # Find areas where we there are valid pixels
+        clipped_image, clear_coverage, intersection_pct, tif_datetime = coverages[idx]
+        valid_pixels = clipped_image[0] == 1
+
+        # Areas that still need pixels
+        to_add = coverage_count < config.coverage_count
+
+        # Find the area of the image that still needs updates and could be updated by this image
+        should_update = np.logical_and(valid_pixels, to_add)
+
+        # Determine how much of the image counts would be imporoved by this image
+        pct_adding = should_update.sum() / grid_pixel_area
+        skip_for_date = skip_same_day and tif_datetime.date() in dates_added
+        include_image = pct_adding > config.percent_added and not skip_for_date
+
+        if include_image:
+            dates_added.add(tif_datetime.date())
+
+        # Save stats for all UDMs
+        if not skip_for_date:
+            item_coverage.append(
+                {
+                    "ordered_idx": idx,
+                    "asset_id": cleaned_asset_id(udm_paths[int(idx)]),
+                    "clear_coverge_pct": clear_coverage,
+                    "intersection_pct": intersection_pct,
+                    "pct_adding": pct_adding,
+                    "capture_datetime": tif_datetime,
+                    "include_image": include_image,
+                }
+            )
+
+        # Update counts for valid image pixels if the image will be inlcuded
+        if include_image:
+            coverage_count[to_add] += 1
+
+    return item_coverage
 
 
 # Finds the best set of UDMs to satisfy a target coverage value for a grid region.
@@ -48,6 +110,7 @@ def calculate_udm_coverages(
     with tempfile.TemporaryDirectory() as tempdir:
         for udm_path in udm_paths:
             temp_path = Path(tempdir) / udm_path.name
+            tif_datetime = parse_tif_path(udm_path)
 
             # Get the UDM in the consistent grid. Do not retain the intermediates.
             clipped_image = reproject_and_crop_to_grid(
@@ -63,12 +126,12 @@ def calculate_udm_coverages(
                 grid,
                 config.ground_sample_distance,
             )
-            item_geom = gdf[gdf.id == cleaned_asset_id(udm_path.stem)].geometry.iloc[0]
+            item_geom = gdf[gdf.id == cleaned_asset_id(udm_path)].geometry.iloc[0]
             intersection_pct = calculate_intersection_pct(grid, item_geom)
-            coverages.append((clipped_image, clear_coverage, intersection_pct))
+            coverages.append((clipped_image, clear_coverage, intersection_pct, tif_datetime))
 
     # Use udms in most to least coverage order
-    coverage_order = np.argsort([c for _, c, _ in coverages])[::-1].tolist()
+    coverage_order = np.argsort([coverage for _, coverage, _, _ in coverages])[::-1].tolist()
 
     # Find UDMs which improve overall grid coverage
 
@@ -77,38 +140,28 @@ def calculate_udm_coverages(
     # Area covered by the target grid
     grid_pixel_area = grid.area / config.ground_sample_distance**2
 
-    item_coverage = []
-    for idx in coverage_order:
-        # Find areas where we there are valid pixels
-        clipped_image, clear_coverage, intersection_pct = coverages[idx]
-        valid_pixels = clipped_image[0] == 1
+    item_coverage = update_coverage(
+        coverage_order,
+        coverages,
+        udm_paths,
+        coverage_count,
+        grid_pixel_area,
+        skip_same_day=config.skip_same_day,
+        config=config,
+    )
+    included_item_idxes = {d["ordered_idx"] for d in item_coverage}
+    skipped_coverage_order = [i for i in coverage_order if i not in included_item_idxes]
+    skipped_item_coverage = update_coverage(
+        skipped_coverage_order,
+        coverages,
+        udm_paths,
+        coverage_count,
+        grid_pixel_area,
+        skip_same_day=False,
+        config=config,
+    )
 
-        # Areas that still need pixels
-        to_add = coverage_count < config.coverage_count
-
-        # Find the area of the image that still needs updates and could be updated by this image
-        should_update = np.logical_and(valid_pixels, to_add)
-
-        # Determine how much of the image counts would be imporoved by this image
-        pct_adding = should_update.sum() / grid_pixel_area
-        include_image = pct_adding > config.percent_added
-
-        # Save stats for all UDMs
-        item_coverage.append(
-            {
-                "asset_id": cleaned_asset_id(udm_paths[int(idx)].stem),
-                "clear_coverge_pct": clear_coverage,
-                "intersection_pct": intersection_pct,
-                "pct_adding": pct_adding,
-                "include_image": include_image,
-            }
-        )
-
-        # Update counts for valid image pixels if the image will be inlcuded
-        if include_image:
-            coverage_count[to_add] += 1
-
-    return pd.DataFrame(item_coverage)
+    return pd.DataFrame(item_coverage + skipped_item_coverage)
 
 
 def select_udms(
