@@ -65,8 +65,13 @@ class AssetType(Enum):
 class DownloadConfig:
     # Path the directory of grid geojson files
     grid_dir: Path = Path("/updateme")
+
     # Path to save the results (should not include a month/year)
+
     save_dir: Path = Path("/updateme")
+
+    # Path to copy the final surface reflectance and UDM data to.
+    processing_dir: Path | None = None
 
     # The type of scene
     item_type: str = "PSScene"

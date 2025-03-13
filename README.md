@@ -74,10 +74,11 @@ conda activate planet_download
 ```
 
 ### Edit the config file
-See the file `src/config.py` to see all configuration options. You ***MUST*** set the `grid_dir` and `save_dir` variables. Feel free to edit the `config.yaml` directly. 
+See the file `src/config.py` to see all configuration options. You ***MUST*** set the `grid_dir` and `save_dir` variables. You should also add a `processing_dir` if you wish the data to be copied for further Neural Network processing. Feel free to edit the `config.yaml` directly. 
 
 `grid_dir` - The path to a folder of geojson grid files in the wgs84 CRS. 
 `save_dir` - The path to a folder where you want to save the data. During the download process, data will be saved to folders following the convention: `save_dir/YEAR/MONTH/GRID_ID`
+`processing_dir` - The path to a folder where you process the surface reflectance and UDM data with a Neural Network. e.g. `Y:\planet\stateMap\processing`
 
 ### Planet API Key
 Look up your API key from the [Planet Account Settings](https://www.planet.com/account/#/user-settings). 

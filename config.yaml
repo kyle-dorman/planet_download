@@ -4,3 +4,7 @@ grid_dir: UPDATEME
 # During the download process, data will be saved to folders 
 # following the convention: `save_dir/YEAR/MONTH/GRID_ID`
 save_dir: UPDATEME
+# The path to a folder where you process the surface reflectance 
+# and UDM data with a Neural Network. 
+# e.g. `Y:\planet\stateMap\processing`
+processing_dir: UPDATEME

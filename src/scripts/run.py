@@ -47,7 +47,12 @@ def main(config_file: Path, year: list[int], month: list[int]) -> None:
     load_dotenv(find_dotenv(raise_error_if_not_found=True))
 
     # List of scripts to run
-    scripts = ["src/scripts/download_udms.py", "src/scripts/select_udms.py", "src/scripts/order_images.py"]
+    scripts = [
+        "src/scripts/download_udms.py",
+        "src/scripts/select_udms.py",
+        "src/scripts/order_images.py",
+        "src/scripts/copy_to_process_dir.py",
+    ]
 
     # Loop through scripts, years, and months
     for script in scripts:
