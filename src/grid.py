@@ -34,8 +34,23 @@ def calculate_mask_coverage(image: np.ndarray, grid_geom: Polygon, ground_sample
 
 # Calculates the pct of the grid that is covered by an image asset.
 def calculate_intersection_pct(grid_geom: Polygon, asset_geom: Polygon) -> float:
-    intersection = asset_geom.intersection(grid_geom)
-    return intersection.area / grid_geom.area
+    # https://github.com/shapely/shapely/issues/1345
+    with np.errstate(invalid="ignore"):
+        if not grid_geom.intersects(asset_geom):
+            return 0.0
+        intersection = grid_geom.intersection(asset_geom)
+        return intersection.area / grid_geom.area
+
+
+# Load the geojson grid.
+def load_grid(grid_path: Path) -> Polygon:
+    # Load Target Grid
+    with open(grid_path) as f:
+        grid_geojson = json.load(f)
+        geom = grid_geojson["features"][0]["geometry"]
+        grid_geom: Polygon = shape(geom)  # type: ignore
+
+    return grid_geom
 
 
 # Convert a geojson poygon to a different crs.
@@ -43,8 +58,10 @@ def open_and_convert_grid(grid_path: Path, crs: CRS) -> Polygon:
     # Load Target Grid
     with open(grid_path) as f:
         grid_geojson = json.load(f)
-        grid_geom: Polygon = shape(grid_geojson["features"][0]["geometry"])  # type: ignore
+        geom = grid_geojson["features"][0]["geometry"]
+        grid_geom: Polygon = shape(geom)  # type: ignore
         grid_crs = CRS.from_string(grid_geojson["crs"]["properties"]["name"])
+
     # Convert grid bounds to base udm crs
     grid_transformed: Polygon = shape(transform_geom(grid_crs, crs, grid_geom))  # type: ignore
 

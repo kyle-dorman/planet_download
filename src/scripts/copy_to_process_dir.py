@@ -56,10 +56,14 @@ def copy_to_process_dir(
 @click.command()
 @click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
 @click.option(
-    "--start-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date in YYYY-MM-DD format.", required=True
+    "-s",
+    "--start-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    help="Start date in YYYY-MM-DD format.",
+    required=True,
 )
 @click.option(
-    "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
+    "-e", "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
 )
 def main(
     config_file: Path,
