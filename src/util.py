@@ -135,14 +135,14 @@ def check_and_create_env(env_path: Path = Path(".env")) -> None:
         write_env_file(api_key, env_path)
 
 
-def create_config(config_file: Path, year: int, month: int) -> tuple[DownloadConfig, Path]:
+def create_config(config_file: Path, start_date: datetime) -> tuple[DownloadConfig, Path]:
     base_config = OmegaConf.structured(DownloadConfig)
     override_config = OmegaConf.load(config_file)
     config: DownloadConfig = OmegaConf.merge(base_config, override_config)  # type: ignore
 
     assert config.grid_dir.exists(), f"grid_dir {config.grid_dir} does not exist!"
 
-    save_path = config.save_dir / str(year) / str(month).zfill(2)
+    save_path = config.save_dir / str(start_date.year) / str(start_date.month).zfill(2)
     save_path.mkdir(exist_ok=True, parents=True)
 
     # Save the configuration to a YAML file

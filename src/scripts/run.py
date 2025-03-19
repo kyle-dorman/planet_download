@@ -1,22 +1,33 @@
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import click
+from dateutil.relativedelta import relativedelta
 from dotenv import find_dotenv, load_dotenv
 
 from src.util import check_and_create_env
 
 
 # Helper function to run each script
-def run_script(script_path: str, year: int, month: int, config_file: Path) -> None:
+def run_script(script_path: str, start_date: datetime, end_date: datetime, config_file: Path) -> None:
     try:
         subprocess.run(
-            ["python", script_path, "--year", str(year), "--month", str(month), "--config-file", str(config_file)],
+            [
+                "python",
+                script_path,
+                "--start-date",
+                str(start_date),
+                "--end-date",
+                str(end_date),
+                "--config-file",
+                str(config_file),
+            ],
             check=True,
         )
     except subprocess.CalledProcessError:
-        click.secho(f"❌ Error: Failed to run {script_path} for Year: {year}, Month: {month}", fg="red")
+        click.secho(f"❌ Error: Failed to run {script_path} for start-date: {end_date}, end-date: {end_date}", fg="red")
         sys.exit(1)
 
 
@@ -58,8 +69,13 @@ def main(config_file: Path, year: list[int], month: list[int]) -> None:
     for script in scripts:
         for y in year:
             for m in month:
+                start_date = datetime(y, m, 1)
+                end_date = start_date + relativedelta(months=1)
+
                 click.secho(f"🚀 Running {script} for Year: {y}, Month: {m}", fg="cyan")
-                run_script(script_path=script, year=y, month=m, config_file=config_file)
+
+                run_script(script_path=script, start_date=start_date, end_date=end_date, config_file=config_file)
+
                 click.secho(f"Finished Running {script} for Year: {y}, Month: {m}", fg="green")
 
     click.secho("All tasks completed successfully!", fg="green")
