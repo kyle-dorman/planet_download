@@ -1,5 +1,6 @@
 import logging
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -12,10 +13,9 @@ logger = logging.getLogger(__name__)
 
 def copy_to_process_dir(
     config_file: Path,
-    year: int,
-    month: int,
+    start_date: datetime,
 ) -> None:
-    config, save_path = create_config(config_file, year=year, month=month)
+    config, save_path = create_config(config_file, start_date=start_date)
 
     setup_logger()
 
@@ -30,7 +30,7 @@ def copy_to_process_dir(
             continue
 
         grid_id = grid_dir.name
-        processing_grid_dir = config.processing_dir / str(year) / str(month).zfill(2) / grid_id
+        processing_grid_dir = config.processing_dir / save_path.parent.parent / save_path.parent / grid_id
         surface_reflectance_dir = processing_grid_dir / "inputData" / "surfaceReflectance"
         udm_dir = processing_grid_dir / "inputData" / "udm"
         surface_reflectance_dir.mkdir(exist_ok=True, parents=True)
@@ -52,19 +52,23 @@ def copy_to_process_dir(
     logger.info("Done!")
 
 
-# Create the intermediate outputs neccessary to inspect a grid's UDMs and downloaded data
+# Copy UDM and reflectance files to directory for downstream processing
 @click.command()
 @click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
-@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
-@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
+@click.option(
+    "--start-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date in YYYY-MM-DD format.", required=True
+)
+@click.option(
+    "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
+)
 def main(
     config_file: Path,
-    year: int,
-    month: int,
+    start_date: datetime,
+    end_date: datetime,
 ):
     config_file = Path(config_file)
 
-    copy_to_process_dir(config_file=config_file, month=month, year=year)
+    copy_to_process_dir(config_file=config_file, start_date=start_date)
 
 
 if __name__ == "__main__":

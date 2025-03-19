@@ -60,10 +60,16 @@ def unzip_downloads(results_grid_dir: Path) -> None:
 
 # Buid the order request including how to clip the image and how to deliver it.
 def build_order_request(
-    filename: str, item_ids: list[str], product_bundle: str, aoi: dict, min_acquired: datetime, config: DownloadConfig
+    filename: str,
+    item_ids: list[str],
+    product_bundle: str,
+    aoi: dict,
+    start_date: datetime,
+    end_date: datetime,
+    config: DownloadConfig,
 ) -> dict:
 
-    name = f"{min_acquired.year}_{min_acquired.month}_{filename}"
+    name = f"{start_date}_{end_date}_{filename}"
 
     products = [order_request.product(item_ids=item_ids, product_bundle=product_bundle, item_type=config.item_type)]
 
@@ -92,7 +98,12 @@ async def create_order(sess: Session, request: dict) -> dict:
 # Create list of orders to create across all grid paths.
 # Skip grids that have existing order.json files.
 def create_order_requests(
-    grid_paths: list[Path], save_dir: Path, imagery_date: datetime, config: DownloadConfig, in_notebook: bool
+    grid_paths: list[Path],
+    save_dir: Path,
+    start_date: datetime,
+    end_date: datetime,
+    config: DownloadConfig,
+    in_notebook: bool,
 ) -> list[tuple[dict, Path]]:
     order_requests = []
 
@@ -121,7 +132,7 @@ def create_order_requests(
         with open(grid_path) as file:
             grid_geojson = json.load(file)
 
-        product_bundle = config.asset_type.product_bundle_string(imagery_date)
+        product_bundle = config.asset_type.product_bundle_string(start_date)
 
         # Create the order request
         order_request = build_order_request(
@@ -129,7 +140,8 @@ def create_order_requests(
             item_ids,
             product_bundle,
             grid_geojson,
-            imagery_date,
+            start_date,
+            end_date,
             config,
         )
 
@@ -143,13 +155,14 @@ async def create_orders(
     sess: Session,
     grid_paths: list[Path],
     save_dir: Path,
-    imagery_date: datetime,
+    start_date: datetime,
+    end_date: datetime,
     config: DownloadConfig,
     in_notebook: bool,
 ):
     # Create the order requests objects
     logger.info("Creating order requests")
-    order_requests_to_create = create_order_requests(grid_paths, save_dir, imagery_date, config, in_notebook)
+    order_requests_to_create = create_order_requests(grid_paths, save_dir, start_date, end_date, config, in_notebook)
 
     logger.info(f"Starting {len(order_requests_to_create)} order requests")
 
@@ -158,7 +171,7 @@ async def create_orders(
         order_tasks = [asyncio.create_task(create_order(sess, request)) for request, _ in order_requests_to_create]
         orders = await asyncio.gather(*order_tasks)
     except Exception as e:
-        logger.error(f"Error creating order for {imagery_date}")
+        logger.error(f"Error creating order for {start_date} {end_date}")
         logger.exception(e)
         raise e
 
@@ -251,11 +264,13 @@ async def download_orders(
 
 
 # Main loop. Create order requests and download the orders when ready.
-async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datetime, in_notebook: bool) -> None:
+async def main_loop(
+    config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime, in_notebook: bool
+) -> None:
     grid_paths = geojson_paths(config.grid_dir)
 
     async with Session() as sess:
-        await create_orders(sess, grid_paths, save_path, imagery_date, config, in_notebook)
+        await create_orders(sess, grid_paths, save_path, start_date, end_date, config, in_notebook)
 
         logger.debug("Downloading image data")
 
@@ -287,28 +302,36 @@ async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datet
         unzip_downloads(results_grid_dir)
 
 
-def order_images(config_file: Path, year: int, month: int):
-    config, save_path = create_config(config_file, year=year, month=month)
+def order_images(
+    config_file: Path,
+    start_date: datetime,
+    end_date: datetime,
+):
+    config, save_path = create_config(config_file, start_date=start_date)
 
     setup_logger(save_path, log_filename="order_images.log")
 
-    logger.info(f"Ordering images for year={year} month={month} grids={config.grid_dir} to={save_path}")
-
-    imagery_date = datetime(year, month, 1)
+    logger.info(
+        f"Ordering images for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
+    )
 
     in_notebook = is_notebook()
 
-    return run_async_function(main_loop(config, save_path, imagery_date, in_notebook))
+    return run_async_function(main_loop(config, save_path, start_date, end_date, in_notebook))
 
 
 @click.command()
 @click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
-@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
-@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
+@click.option(
+    "--start-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date in YYYY-MM-DD format.", required=True
+)
+@click.option(
+    "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
+)
 def main(
     config_file: Path,
-    year: int,
-    month: int,
+    start_date: datetime,
+    end_date: datetime,
 ):
     config_file = Path(config_file)
 
@@ -319,7 +342,7 @@ def main(
     # load up the .env entries as environment variables
     load_dotenv(find_dotenv(raise_error_if_not_found=True))
 
-    order_images(config_file=config_file, month=month, year=year)
+    order_images(config_file=config_file, start_date=start_date, end_date=end_date)
 
 
 if __name__ == "__main__":

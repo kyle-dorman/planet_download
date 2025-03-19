@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import AsyncIterator
 
 import click
-from dateutil.relativedelta import relativedelta
 from dotenv import find_dotenv, load_dotenv
 from planet import DataClient, Session, data_filter
 from shapely.geometry import Polygon, shape
@@ -55,7 +54,7 @@ async def do_search(sess: Session, search_request: dict, config: DownloadConfig)
 
 
 # Define the search filters used to find the UDMs
-def create_search_filter(grid_path: Path, min_acquired: datetime, config: DownloadConfig) -> dict:
+def create_search_filter(grid_path: Path, start_date: datetime, end_date: datetime, config: DownloadConfig) -> dict:
     with open(grid_path) as file:
         grid_geojson = json.load(file)
 
@@ -63,12 +62,10 @@ def create_search_filter(grid_path: Path, min_acquired: datetime, config: Downlo
     geom_filter = data_filter.geometry_filter(grid_geojson)
 
     # date range filter
-    date_range_filter = data_filter.date_range_filter(
-        "acquired", gte=min_acquired, lt=min_acquired + relativedelta(months=1)
-    )
+    date_range_filter = data_filter.date_range_filter("acquired", gte=start_date, lt=end_date)
 
     # Asset filter
-    asset_type = config.asset_type.planet_asset_string(min_acquired)
+    asset_type = config.asset_type.planet_asset_string(start_date)
     superdove_filter = data_filter.asset_filter([asset_type])
 
     # Has ground control points
@@ -96,13 +93,13 @@ def create_search_filter(grid_path: Path, min_acquired: datetime, config: Downlo
 # Asynchronously performs a search for imagery using the given geometry, and start date.
 # Returns a list of itemsfound by the search.
 async def search(
-    sess: Session, grid_path: Path, config: DownloadConfig, save_path: Path, min_acquired: datetime
+    sess: Session, grid_path: Path, config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime
 ) -> AsyncIterator[dict]:
-    search_filter = create_search_filter(grid_path, min_acquired, config)
+    search_filter = create_search_filter(grid_path, start_date, start_date, config)
     with open(save_path / "search_filter.json", "w") as f:
         json.dump(search_filter, f)
 
-    search_name = f"{config.udm_search_name}_{config.grid_dir.stem}_{min_acquired.year}_{min_acquired.month}"
+    search_name = f"{config.udm_search_name}_{config.grid_dir.stem}_{start_date}_{end_date}"
     search_request = await create_search(sess, search_name, search_filter, config)
     with open(save_path / "search_request.json", "w") as f:
         json.dump(search_request, f)
@@ -266,7 +263,7 @@ async def download_all_udms(
 
 # Gets a list of all UDMs which need to be downloaded across all grids.
 async def get_download_list(
-    sess: Session, config: DownloadConfig, save_path: Path, imagery_date: datetime
+    sess: Session, config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime
 ) -> list[tuple[dict, Path]]:
     to_download = []
     for grid_path in geojson_paths(config.grid_dir):
@@ -283,7 +280,7 @@ async def get_download_list(
                 item_list = json.load(f)
         else:
             # define the original item list. This is all imagery for the given date and grid
-            lazy_item_list = await search(sess, grid_path, config, save_path, imagery_date)
+            lazy_item_list = await search(sess, grid_path, config, save_path, start_date, end_date)
             item_list = [i async for i in lazy_item_list]
 
             item_list = filter_grid_intersection(grid_path, item_list, config)
@@ -295,7 +292,7 @@ async def get_download_list(
             save_search_geom(item_list, grid_save_path / "search_geometries.geojson")
 
         if len(item_list) == 0:
-            logger.warning(f"No matches for {grid_path.stem} {imagery_date}")
+            logger.warning(f"No matches for {grid_path.stem} {start_date} {end_date}")
             continue
 
         for item in item_list:
@@ -305,9 +302,11 @@ async def get_download_list(
 
 
 # Main loop. Download all overlapping UDMs for a given date and directory of grids.
-async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datetime, in_notebook: bool) -> None:
+async def main_loop(
+    config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime, in_notebook: bool
+) -> None:
     async with Session() as sess:
-        to_download = await get_download_list(sess, config, save_path, imagery_date)
+        to_download = await get_download_list(sess, config, save_path, start_date, end_date)
 
         # loop through and download all the UDM2 files for the given date and grid
         await download_all_udms(to_download, sess, config, in_notebook)
@@ -315,30 +314,34 @@ async def main_loop(config: DownloadConfig, save_path: Path, imagery_date: datet
 
 def download_udms(
     config_file: Path,
-    year: int,
-    month: int,
+    start_date: datetime,
+    end_date: datetime,
 ):
-    config, save_path = create_config(config_file, year=year, month=month)
+    config, save_path = create_config(config_file, start_date=start_date)
 
     setup_logger(save_path, log_filename="download_udms.log")
 
-    imagery_date = datetime(year, month, 1)
-
-    logger.info(f"Downloading UDMs for year={year} month={month} grids={config.grid_dir} to={save_path}")
+    logger.info(
+        f"Downloading UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
+    )
 
     in_notebook = is_notebook()
 
-    return run_async_function(main_loop(config, save_path, imagery_date, in_notebook))
+    return run_async_function(main_loop(config, save_path, start_date, end_date, in_notebook))
 
 
 @click.command()
 @click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
-@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
-@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
+@click.option(
+    "--start-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date in YYYY-MM-DD format.", required=True
+)
+@click.option(
+    "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
+)
 def main(
     config_file: Path,
-    year: int,
-    month: int,
+    start_date: datetime,
+    end_date: datetime,
 ):
     config_file = Path(config_file)
 
@@ -349,7 +352,7 @@ def main(
     # load up the .env entries as environment variables
     load_dotenv(find_dotenv(raise_error_if_not_found=True))
 
-    download_udms(config_file=config_file, month=month, year=year)
+    download_udms(config_file=config_file, start_date=start_date, end_date=end_date)
 
 
 if __name__ == "__main__":

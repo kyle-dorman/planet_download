@@ -7,6 +7,7 @@ import click
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from shapely import Polygon
 
 from src.config import DownloadConfig
 from src.grid import (
@@ -126,7 +127,7 @@ def calculate_udm_coverages(
                 grid,
                 config.ground_sample_distance,
             )
-            item_geom = gdf[gdf.id == cleaned_asset_id(udm_path)].geometry.iloc[0]
+            item_geom: Polygon = gdf[gdf.id == cleaned_asset_id(udm_path)].geometry.iloc[0]  # type: ignore
             intersection_pct = calculate_intersection_pct(grid, item_geom)
             coverages.append((clipped_image, clear_coverage, intersection_pct, tif_datetime))
 
@@ -166,14 +167,16 @@ def calculate_udm_coverages(
 
 def select_udms(
     config_file: Path,
-    year: int,
-    month: int,
+    start_date: datetime,
+    end_date: datetime,
 ) -> None:
-    config, save_path = create_config(config_file, year=year, month=month)
+    config, save_path = create_config(config_file, start_date=start_date)
 
     setup_logger(save_path, log_filename="select_udms.log")
 
-    logger.info(f"Selecting best UDMs for year={year} month={month} grids={config.grid_dir} to={save_path}")
+    logger.info(
+        f"Selecting best UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
+    )
 
     in_notebook = is_notebook()
 
@@ -200,16 +203,20 @@ def select_udms(
 
 @click.command()
 @click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
-@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
-@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
+@click.option(
+    "--start-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date in YYYY-MM-DD format.", required=True
+)
+@click.option(
+    "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
+)
 def main(
     config_file: Path,
-    year: int,
-    month: int,
+    start_date: datetime,
+    end_date: datetime,
 ):
     config_file = Path(config_file)
 
-    select_udms(config_file=config_file, month=month, year=year)
+    select_udms(config_file=config_file, start_date=start_date, end_date=end_date)
 
     logger.info("Done!")
 

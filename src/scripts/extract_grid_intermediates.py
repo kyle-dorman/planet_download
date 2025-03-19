@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -110,10 +111,9 @@ def reproject_and_crop_download_outputs(results_grid_dir: Path, grid_path: Path,
 def extract_grid_intermediates(
     config_file: Path,
     grid_id: str,
-    year: int,
-    month: int,
+    start_date: datetime,
 ) -> None:
-    config, save_path = create_config(config_file, year=year, month=month)
+    config, save_path = create_config(config_file, start_date=start_date)
 
     setup_logger()
 
@@ -131,17 +131,21 @@ def extract_grid_intermediates(
 @click.command()
 @click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
 @click.option("-g", "--grid-id", type=str)
-@click.option("-y", "--year", type=click.IntRange(min=1990, max=2050))
-@click.option("-m", "--month", type=click.IntRange(min=1, max=12))
+@click.option(
+    "--start-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date in YYYY-MM-DD format.", required=True
+)
+@click.option(
+    "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
+)
 def main(
     config_file: Path,
     grid_id: str,
-    year: int,
-    month: int,
+    start_date: datetime,
+    end_date: datetime,
 ):
     config_file = Path(config_file)
 
-    extract_grid_intermediates(config_file=config_file, grid_id=grid_id, month=month, year=year)
+    extract_grid_intermediates(config_file=config_file, grid_id=grid_id, start_date=start_date)
 
     logger.info("Done!")
 
