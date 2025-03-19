@@ -11,7 +11,7 @@ from planet import DataClient, Session, data_filter
 from shapely.geometry import Polygon, shape
 
 from src.config import DownloadConfig
-from src.grid import calculate_intersection_pct
+from src.grid import calculate_intersection_pct, load_grid
 from src.util import (
     check_and_create_env,
     create_config,
@@ -95,7 +95,7 @@ def create_search_filter(grid_path: Path, start_date: datetime, end_date: dateti
 async def search(
     sess: Session, grid_path: Path, config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime
 ) -> AsyncIterator[dict]:
-    search_filter = create_search_filter(grid_path, start_date, start_date, config)
+    search_filter = create_search_filter(grid_path, start_date, end_date, config)
     with open(save_path / "search_filter.json", "w") as f:
         json.dump(search_filter, f)
 
@@ -131,14 +131,13 @@ def save_search_geom(item_list: list[dict], save_path: Path) -> None:
 # Filters UDMs that intersect with the grid less than the DownloadConfig.percent_added.
 # You can do this in the Planet web tool but not the API.
 def filter_grid_intersection(grid_path: Path, item_list: list[dict], config: DownloadConfig) -> list[dict]:
-    with open(grid_path) as f:
-        grid_geojson = json.load(f)
-        grid_geom: Polygon = shape(grid_geojson["features"][0]["geometry"])  # type: ignore
+    grid_geom = load_grid(grid_path)
 
     out = []
     for item in item_list:
-        item_grid: Polygon = shape(item["geometry"])  # type: ignore
-        pct_intersection = calculate_intersection_pct(grid_geom, item_grid)
+        geom = item["geometry"]
+        item_geom: Polygon = shape(geom)  # type: ignore
+        pct_intersection = calculate_intersection_pct(grid_geom, item_geom)
 
         if pct_intersection < config.percent_added:
             continue
@@ -333,10 +332,14 @@ def download_udms(
 @click.command()
 @click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
 @click.option(
-    "--start-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date in YYYY-MM-DD format.", required=True
+    "-s",
+    "--start-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    help="Start date in YYYY-MM-DD format.",
+    required=True,
 )
 @click.option(
-    "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
+    "-e", "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
 )
 def main(
     config_file: Path,

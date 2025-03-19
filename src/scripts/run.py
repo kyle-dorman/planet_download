@@ -17,8 +17,10 @@ def run_script(script_path: str, start_date: datetime, end_date: datetime, confi
             [
                 "python",
                 script_path,
+                "-s",
                 "--start-date",
                 str(start_date),
+                "-e",
                 "--end-date",
                 str(end_date),
                 "--config-file",

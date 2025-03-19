@@ -108,3 +108,7 @@ notebooks/lightning_logs/
 .vscode-server/
 .gitconfig
 .sudo_as_admin_successful
+
+
+# Config
+run_config.yaml

@@ -97,6 +97,7 @@ def calculate_udm_coverages(
 
     # Choose CRS to work in
     crs = find_most_common_crs(udm_paths)
+    udm_gdf = gdf.to_crs(crs)
 
     # Load Target Grid and convert grid to udm crs
     grid = open_and_convert_grid(grid_path, crs)
@@ -127,7 +128,7 @@ def calculate_udm_coverages(
                 grid,
                 config.ground_sample_distance,
             )
-            item_geom: Polygon = gdf[gdf.id == cleaned_asset_id(udm_path)].geometry.iloc[0]  # type: ignore
+            item_geom: Polygon = udm_gdf[udm_gdf.id == cleaned_asset_id(udm_path)].geometry.iloc[0]  # type: ignore
             intersection_pct = calculate_intersection_pct(grid, item_geom)
             coverages.append((clipped_image, clear_coverage, intersection_pct, tif_datetime))
 
@@ -204,10 +205,14 @@ def select_udms(
 @click.command()
 @click.option("-c", "--config-file", type=click.Path(exists=True), required=True)
 @click.option(
-    "--start-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="Start date in YYYY-MM-DD format.", required=True
+    "-s",
+    "--start-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    help="Start date in YYYY-MM-DD format.",
+    required=True,
 )
 @click.option(
-    "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
+    "-e", "--end-date", type=click.DateTime(formats=["%Y-%m-%d"]), help="End date in YYYY-MM-DD format.", required=True
 )
 def main(
     config_file: Path,
