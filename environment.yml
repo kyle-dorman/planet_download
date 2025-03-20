@@ -28,6 +28,7 @@ dependencies:
   # https://stackoverflow.com/questions/78949093/how-to-resolve-attributeerror-module-fiona-has-no-attribute-path
   - geopandas<=0.14.3
   - fiona<1.10.0
+  - pytmd
   # Plotting
   - seaborn>=0.11.0
   - matplotlib>=3.2.2

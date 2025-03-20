@@ -115,7 +115,11 @@ def save_search_geom(item_list: list[dict], save_path: Path) -> None:
         "features": [
             {
                 "type": "Feature",
-                "properties": {"id": item["id"], "pixel_resolution": item["properties"]["pixel_resolution"]},
+                "properties": {
+                    "id": item["id"],
+                    "pixel_resolution": item["properties"]["pixel_resolution"],
+                    "acquired": item["properties"]["acquired"],
+                },
                 "geometry": item["geometry"],
             }
             for item in item_list
