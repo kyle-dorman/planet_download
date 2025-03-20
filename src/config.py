@@ -111,3 +111,12 @@ class DownloadConfig:
 
     # Only include one image per day unless there are less than coverage_count and it is needed.
     skip_same_day: bool = True
+
+    # Tides model directory
+    tides_model_directory: Path | None = None
+
+    # Tide model
+    tide_model_name = "GOT4.10"
+
+    # Tide model format
+    tide_model_format = "GOT"
