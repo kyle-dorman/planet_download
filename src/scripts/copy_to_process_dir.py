@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 def copy_to_process_dir(
     config_file: Path,
     start_date: datetime,
+    end_date: datetime,
 ) -> None:
-    config, save_path = create_config(config_file, start_date=start_date)
+    config, save_path = create_config(config_file, start_date=start_date, end_date=end_date)
 
     setup_logger()
 
@@ -72,7 +73,7 @@ def main(
 ):
     config_file = Path(config_file)
 
-    copy_to_process_dir(config_file=config_file, start_date=start_date)
+    copy_to_process_dir(config_file=config_file, start_date=start_date, end_date=end_date)
 
 
 if __name__ == "__main__":

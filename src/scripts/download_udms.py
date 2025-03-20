@@ -320,7 +320,7 @@ def download_udms(
     start_date: datetime,
     end_date: datetime,
 ):
-    config, save_path = create_config(config_file, start_date=start_date)
+    config, save_path = create_config(config_file, start_date=start_date, end_date=end_date)
 
     setup_logger(save_path, log_filename="download_udms.log")
 

@@ -1,10 +1,11 @@
 import asyncio
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Type
 
+from matplotlib.dates import relativedelta
 from omegaconf import OmegaConf
 from tqdm.asyncio import tqdm_asyncio
 from tqdm.notebook import tqdm_notebook
@@ -135,14 +136,30 @@ def check_and_create_env(env_path: Path = Path(".env")) -> None:
         write_env_file(api_key, env_path)
 
 
-def create_config(config_file: Path, start_date: datetime) -> tuple[DownloadConfig, Path]:
+def create_config(config_file: Path, start_date: datetime, end_date: datetime) -> tuple[DownloadConfig, Path]:
     base_config = OmegaConf.structured(DownloadConfig)
     override_config = OmegaConf.load(config_file)
     config: DownloadConfig = OmegaConf.merge(base_config, override_config)  # type: ignore
 
     assert config.grid_dir.exists(), f"grid_dir {config.grid_dir} does not exist!"
 
-    save_path = config.save_dir / str(start_date.year) / str(start_date.month).zfill(2)
+    # Check if they are exactly 1 day apart
+    if end_date - start_date == timedelta(days=1):
+        save_path = (
+            config.save_dir / str(start_date.year) / str(start_date.month).zfill(2) / str(start_date.day).zfill(2)
+        )
+
+    # Check if they are exactly 1 month apart
+    elif end_date == start_date + relativedelta(months=1):
+        save_path = config.save_dir / str(start_date.year) / str(start_date.month).zfill(2)
+
+    # Check if they are exactly 1 year apart
+    elif end_date == start_date + relativedelta(years=1):
+        save_path = config.save_dir / str(start_date.year)
+
+    else:
+        raise RuntimeError("Date diff is not one of day, month, year")
+
     save_path.mkdir(exist_ok=True, parents=True)
 
     # Save the configuration to a YAML file
