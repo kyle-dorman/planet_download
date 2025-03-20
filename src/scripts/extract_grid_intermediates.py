@@ -108,12 +108,8 @@ def reproject_and_crop_download_outputs(results_grid_dir: Path, grid_path: Path,
             )
 
 
-def extract_grid_intermediates(
-    config_file: Path,
-    grid_id: str,
-    start_date: datetime,
-) -> None:
-    config, save_path = create_config(config_file, start_date=start_date)
+def extract_grid_intermediates(config_file: Path, grid_id: str, start_date: datetime, end_date: datetime) -> None:
+    config, save_path = create_config(config_file, start_date=start_date, end_date=end_date)
 
     setup_logger()
 
@@ -149,7 +145,7 @@ def main(
 ):
     config_file = Path(config_file)
 
-    extract_grid_intermediates(config_file=config_file, grid_id=grid_id, start_date=start_date)
+    extract_grid_intermediates(config_file=config_file, grid_id=grid_id, start_date=start_date, end_date=end_date)
 
     logger.info("Done!")
 

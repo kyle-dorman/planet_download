@@ -171,7 +171,7 @@ def select_udms(
     start_date: datetime,
     end_date: datetime,
 ) -> None:
-    config, save_path = create_config(config_file, start_date=start_date)
+    config, save_path = create_config(config_file, start_date=start_date, end_date=end_date)
 
     setup_logger(save_path, log_filename="select_udms.log")
 
