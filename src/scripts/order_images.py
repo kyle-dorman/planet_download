@@ -128,6 +128,10 @@ def create_order_requests(
         udm_df = pd.read_csv(item_ids_path)
         item_ids = udm_df[udm_df.include_image]["asset_id"].tolist()
 
+        if not len(item_ids):
+            logger.warning(f"No valid images for {grid_id}. Skipping...")
+            continue
+
         # Load the grid AOI
         with open(grid_path) as file:
             grid_geojson = json.load(file)

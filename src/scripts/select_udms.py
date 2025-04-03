@@ -90,8 +90,13 @@ def calculate_udm_coverages(
     results_grid_dir: Path,
     grid_path: Path,
     config: DownloadConfig,
-) -> pd.DataFrame:
+) -> pd.DataFrame | None:
     udm_paths = tif_paths(results_grid_dir / "udm")
+
+    if not len(udm_paths):
+        logger.warning(f"No UDMs for {grid_path.stem}")
+        return None
+
     geojson_file = results_grid_dir / "search_geometries.geojson"
     gdf = gpd.read_file(geojson_file)
 
@@ -199,7 +204,8 @@ def select_udms(
             continue
 
         coverage_df = calculate_udm_coverages(results_grid_dir, grid_path, config)
-        coverage_df.to_csv(csv_path, index=False)
+        if coverage_df is not None:
+            coverage_df.to_csv(csv_path, index=False)
 
 
 @click.command()
