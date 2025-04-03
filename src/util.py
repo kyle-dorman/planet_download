@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Type
 
@@ -143,22 +143,16 @@ def create_config(config_file: Path, start_date: datetime, end_date: datetime) -
 
     assert config.grid_dir.exists(), f"grid_dir {config.grid_dir} does not exist!"
 
-    # Check if they are exactly 1 day apart
-    if end_date - start_date == timedelta(days=1):
-        save_path = (
-            config.save_dir / str(start_date.year) / str(start_date.month).zfill(2) / str(start_date.day).zfill(2)
-        )
+    save_path = config.save_dir / str(start_date.year)
 
-    # Check if they are exactly 1 month apart
-    elif end_date == start_date + relativedelta(months=1):
-        save_path = config.save_dir / str(start_date.year) / str(start_date.month).zfill(2)
-
-    # Check if they are exactly 1 year apart
-    elif end_date == start_date + relativedelta(years=1):
-        save_path = config.save_dir / str(start_date.year)
-
-    else:
-        raise RuntimeError("Date diff is not one of day, month, year")
+    # If date range is smaller than this delta, add to the folder path
+    deltas = [
+        (relativedelta(years=1), str(start_date.month)),
+        (relativedelta(months=1), str(start_date.day)),
+    ]
+    for delta, folder_name in deltas:
+        if end_date < start_date + delta:
+            save_path = save_path / folder_name
 
     save_path.mkdir(exist_ok=True, parents=True)
 

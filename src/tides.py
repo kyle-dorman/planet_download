@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pyTMD
 from pyTMD.compute import tide_elevations
+from scipy.ndimage import binary_erosion
 from timescale.time import convert_datetime
 
 logger = logging.getLogger(__name__)
@@ -23,8 +24,9 @@ def find_nearest_coordinate(latlon: np.ndarray, mask: np.ndarray, yi: np.ndarray
     Returns:
     - nearest_latlon: The closest valid coordinates as a list
     """
+    eroded_mask = binary_erosion(mask.astype(np.uint8), np.ones((3, 3))) == 1
     # Convert mask to coords
-    vy, vx = np.where(mask)
+    vy, vx = np.where(eroded_mask)
     valid_latlon = np.array(list(zip(yi[vy], xi[vx])))
 
     # Compute Euclidean distances (simplified for small distances)
