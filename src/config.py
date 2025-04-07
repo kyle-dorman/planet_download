@@ -5,7 +5,7 @@ from pathlib import Path
 
 class ItemType(Enum):
     PSScene = "PSScene"
-    SkySatScene = "SkySatScene"
+    SkySatCollect = "SkySatCollect"
 
 
 class AssetType(Enum):
@@ -123,10 +123,8 @@ def udm_asset_string(config: DownloadConfig) -> str:
             return "ortho_udm2"
         else:
             raise RuntimeError(f"Unexpected AssetType {config.asset_type}")
-    elif config.item_type == ItemType.SkySatScene:
-        if config.asset_type == AssetType.basic:
-            return "basic_analytic_udm2"
-        elif config.asset_type in [AssetType.ortho, AssetType.ortho_sr]:
+    elif config.item_type == ItemType.SkySatCollect:
+        if config.asset_type in [AssetType.ortho, AssetType.ortho_sr]:
             return "ortho_analytic_udm2"
         elif config.asset_type == AssetType.ortho_pansharpened:
             return "ortho_pansharpened_udm2"
@@ -146,13 +144,11 @@ def planet_asset_string(config: DownloadConfig) -> str:
             return f"basic_analytic_{config.num_bands}b"
         else:
             raise RuntimeError(f"Unexpected AssetType {config.asset_type}")
-    elif config.item_type == ItemType.SkySatScene:
+    elif config.item_type == ItemType.SkySatCollect:
         if config.asset_type == AssetType.ortho_sr:
             return "ortho_analytic_sr"
         elif config.asset_type == AssetType.ortho:
             return "ortho_analytic"
-        elif config.asset_type == AssetType.basic:
-            return "basic_analytic"
         elif config.asset_type == AssetType.ortho_pansharpened:
             return "ortho_pansharpened"
         else:
@@ -197,13 +193,9 @@ def product_bundle_string(config: DownloadConfig) -> str:
                 )
         else:
             raise RuntimeError(f"Unexpected AssetType {config.asset_type}")
-    elif config.item_type == ItemType.SkySatScene:
-        if config.asset_type == AssetType.ortho_sr:
-            return "analytic_sr"
-        elif config.asset_type == AssetType.ortho:
+    elif config.item_type == ItemType.SkySatCollect:
+        if config.asset_type in [AssetType.ortho, AssetType.ortho_sr]:
             return "analytic_udm2"
-        elif config.asset_type == AssetType.basic:
-            return "basic_analytic"
         elif config.asset_type == AssetType.ortho_pansharpened:
             return "pansharpened_udm2"
         else:

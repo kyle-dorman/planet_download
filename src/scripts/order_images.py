@@ -90,7 +90,7 @@ def build_order_request(
     name = f"{start_date}_{end_date}_{filename}"
 
     products = [
-        order_request.product(item_ids=item_ids, product_bundle=product_bundle, item_type=str(config.item_type))
+        order_request.product(item_ids=item_ids, product_bundle=product_bundle, item_type=config.item_type.value)
     ]
 
     tools = [order_request.clip_tool(aoi)]

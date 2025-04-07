@@ -10,7 +10,7 @@ from dotenv import find_dotenv, load_dotenv
 from planet import DataClient, Session, data_filter
 from shapely.geometry import Polygon, shape
 
-from src.config import DownloadConfig, planet_asset_string, udm_asset_string
+from src.config import DownloadConfig, ItemType, planet_asset_string, udm_asset_string
 from src.grid import calculate_intersection_pct, load_grid
 from src.util import (
     check_and_create_env,
@@ -27,13 +27,19 @@ logger = logging.getLogger(__name__)
 
 
 # Asynchronously creates a search request with the given search filter. Returns the created search request.
-async def create_search(sess: Session, search_name: str, search_filter: dict, config: DownloadConfig) -> dict:
+async def create_search(
+    sess: Session, search_name: str, search_filter: dict, grid_path: Path, config: DownloadConfig
+) -> dict:
     logger.debug(f"Creating search request {search_name}")
+
+    with open(grid_path) as file:
+        grid_geojson = json.load(file)
 
     search_request = await DataClient(sess).create_search(
         name=search_name,
         search_filter=search_filter,
-        item_types=[str(config.item_type)],
+        item_types=[config.item_type.value],
+        geometry=grid_geojson,
     )
 
     logger.debug(f"Created search request {search_name} {search_request['id']}")
@@ -54,7 +60,7 @@ async def do_search(sess: Session, search_request: dict, config: DownloadConfig)
 
 
 # Define the search filters used to find the UDMs
-def create_search_filter(grid_path: Path, start_date: datetime, end_date: datetime, config: DownloadConfig) -> dict:
+def create_search_filter(start_date: datetime, end_date: datetime, grid_path: Path, config: DownloadConfig) -> dict:
     with open(grid_path) as file:
         grid_geojson = json.load(file)
 
@@ -66,10 +72,7 @@ def create_search_filter(grid_path: Path, start_date: datetime, end_date: dateti
 
     # Asset filter
     asset_type = planet_asset_string(config)
-    superdove_filter = data_filter.asset_filter([asset_type])
-
-    # Has ground control points
-    ground_control_filter = data_filter.string_in_filter("ground_control", [str(config.ground_control).lower()])
+    asset_filter = data_filter.asset_filter([asset_type])
 
     # Only get "quality" images
     quality_category_filter = data_filter.string_in_filter("quality_category", [config.quality_category])
@@ -77,28 +80,33 @@ def create_search_filter(grid_path: Path, start_date: datetime, end_date: dateti
     # Minimum "clear" pct of the image.
     clear_percent_filter = data_filter.range_filter("clear_percent", gte=config.clear_percent)
 
-    # Set publishing level filter
-    publishing_filter = data_filter.string_in_filter("publishing_stage", [config.publishing_stage])
-
-    # Set item type
-    publishing_filter = data_filter.string_in_filter("item_type", [str(config.item_type)])
-
     # Only get data we can download
     permission_filter = data_filter.permission_filter()
 
+    # Set item type
+    item_filter = data_filter.string_in_filter("item_type", [config.item_type.value])
+
+    filters = [
+        geom_filter,
+        date_range_filter,
+        asset_filter,
+        quality_category_filter,
+        clear_percent_filter,
+        permission_filter,
+        item_filter,
+    ]
+
+    # Set publishing level filter
+    if config.item_type == ItemType.PSScene:
+        publishing_filter = data_filter.string_in_filter("publishing_stage", [config.publishing_stage])
+        filters.append(publishing_filter)
+
+        # Has ground control points
+        ground_control_filter = data_filter.string_in_filter("ground_control", [str(config.ground_control).lower()])
+        filters.append(ground_control_filter)
+
     # combine all of the filters
-    all_filters = data_filter.and_filter(
-        [
-            geom_filter,
-            date_range_filter,
-            superdove_filter,
-            ground_control_filter,
-            quality_category_filter,
-            clear_percent_filter,
-            publishing_filter,
-            permission_filter,
-        ]
-    )
+    all_filters = data_filter.and_filter(filters)
 
     return all_filters
 
@@ -108,12 +116,10 @@ def create_search_filter(grid_path: Path, start_date: datetime, end_date: dateti
 async def search(
     sess: Session, grid_path: Path, config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime
 ) -> AsyncIterator[dict]:
-    search_filter = create_search_filter(grid_path, start_date, end_date, config)
-    with open(save_path / "search_filter.json", "w") as f:
-        json.dump(search_filter, f)
+    search_filter = create_search_filter(start_date, end_date, grid_path, config)
 
     search_name = f"{config.udm_search_name}_{config.grid_dir.stem}_{start_date}_{end_date}"
-    search_request = await create_search(sess, search_name, search_filter, config)
+    search_request = await create_search(sess, search_name, search_filter, grid_path, config)
     with open(save_path / "search_request.json", "w") as f:
         json.dump(search_request, f)
 
@@ -290,28 +296,33 @@ async def get_download_list(
         udm_save_dir = grid_save_path / "udm"
         udm_save_dir.mkdir(exist_ok=True, parents=True)
 
-        search_results_path = grid_save_path / "search_results.json"
+        search_results_path = grid_save_path / "filtered_search_results.json"
         if search_results_path.exists():
             with open(search_results_path) as f:
-                item_list = json.load(f)
+                filtered_item_list = json.load(f)
         else:
             # define the original item list. This is all imagery for the given date and grid
             lazy_item_list = await search(sess, grid_path, config, save_path, start_date, end_date)
             item_list = [i async for i in lazy_item_list]
-
-            item_list = filter_grid_intersection(grid_path, item_list, config)
             logger.info(f"Found {len(item_list)} matching grids for {grid_path.stem}")
 
-            # Save the results
-            with open(search_results_path, "w") as f:
+            # Save all the results
+            with open(grid_save_path / "all_search_results.json", "w") as f:
                 json.dump(item_list, f)
-            save_search_geom(item_list, grid_save_path / "search_geometries.geojson")
 
-        if len(item_list) == 0:
+            filtered_item_list = filter_grid_intersection(grid_path, item_list, config)
+            logger.info(f"Found {len(filtered_item_list)} matching overlapping grids for {grid_path.stem}")
+
+            # Save the filtered results
+            with open(search_results_path, "w") as f:
+                json.dump(filtered_item_list, f)
+            save_search_geom(filtered_item_list, grid_save_path / "search_geometries.geojson")
+
+        if len(filtered_item_list) == 0:
             logger.warning(f"No matches for {grid_path.stem} {start_date} {end_date}")
             continue
 
-        for item in item_list:
+        for item in filtered_item_list:
             to_download.append((item, udm_save_dir))
 
     return to_download
