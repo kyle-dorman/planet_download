@@ -71,23 +71,36 @@ def create_search_filter(grid_path: Path, start_date: datetime, end_date: dateti
     # Has ground control points
     ground_control_filter = data_filter.string_in_filter("ground_control", [str(config.ground_control).lower()])
 
+    # Only get "quality" images
+    quality_category_filter = data_filter.string_in_filter("quality_category", [config.quality_category])
+
     # Minimum "clear" pct of the image.
     clear_percent_filter = data_filter.range_filter("clear_percent", gte=config.clear_percent)
 
     # Set publishing level filter
     publishing_filter = data_filter.string_in_filter("publishing_stage", [config.publishing_stage])
 
+    # Set item type
+    publishing_filter = data_filter.string_in_filter("item_type", [config.item_type])
+
+    # Only get data we can download
+    permission_filter = data_filter.permission_filter()
+
     # combine all of the filters
-    return data_filter.and_filter(
+    all_filters = data_filter.and_filter(
         [
             geom_filter,
             date_range_filter,
             superdove_filter,
             ground_control_filter,
+            quality_category_filter,
             clear_percent_filter,
             publishing_filter,
+            permission_filter,
         ]
     )
+
+    return all_filters
 
 
 # Asynchronously performs a search for imagery using the given geometry, and start date.

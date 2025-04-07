@@ -85,6 +85,9 @@ class DownloadConfig:
     # Require ground control points
     ground_control: bool = True
 
+    # Quality level
+    quality_category: str = "standard"
+
     # Min allowed clear percent
     clear_percent: float = 0.0
 
@@ -93,6 +96,9 @@ class DownloadConfig:
 
     # Max number of UDMs to consider (for a single month ~60 is normal per grid)
     udm_limit: int = 1000
+
+    # Max number of items in an order (will break a single order into multiple)
+    order_item_limit: int = 500
 
     # Desired number of pixels per grid point across all images downloaded
     coverage_count: int = 5
