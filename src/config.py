@@ -1,64 +1,18 @@
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
 
-# Get the type of Planet asset based on the date.
-# 8 band wasn't available before 2021 (I think)
-def num_bands_from_datetime(capture_datetime: datetime) -> int:
-    return 4 if capture_datetime.year <= 2020 else 8
+class ItemType(Enum):
+    PSScene = "PSScene"
+    SkySatCollect = "SkySatCollect"
 
 
 class AssetType(Enum):
     ortho_sr = "ortho_sr"
     ortho = "ortho"
     basic = "basic"
-
-    def udm_asset_string(self) -> str:
-        if self == AssetType.basic:
-            return "basic_udm2"
-        elif self in [AssetType.ortho, AssetType.ortho_sr]:
-            return "ortho_udm2"
-        else:
-            raise RuntimeError(f"Unexpected AssetType {self}")
-
-    def planet_asset_string(self, capture_datetime: datetime) -> str:
-        num_bands = num_bands_from_datetime(capture_datetime)
-
-        if self == AssetType.ortho_sr:
-            return f"ortho_analytic_{num_bands}b_sr"
-        elif self == AssetType.ortho:
-            return f"ortho_analytic_{num_bands}b"
-        elif self == AssetType.basic:
-            return f"basic_analytic_{num_bands}b"
-        else:
-            raise RuntimeError(f"Unexpected AssetType {self}")
-
-    def product_bundle_string(self, capture_datetime: datetime) -> str:
-        # Based on reference sheet:
-        # https://developers.planet.com/apis/orders/product-bundles-reference/
-
-        num_bands = num_bands_from_datetime(capture_datetime)
-        if num_bands == 8:
-            num_bands_str = "8b_"
-        else:
-            num_bands_str = ""
-
-        if self == AssetType.ortho_sr:
-            return f"analytic_{num_bands_str}sr_udm2"
-
-        elif self == AssetType.ortho:
-            # Crazy logic, untested
-            if num_bands == 8:
-                return "analytic_5b"
-            else:
-                return "analytic_udm2"
-
-        elif self == AssetType.basic:
-            return f"basic_analytic_{num_bands_str}udm2"
-        else:
-            raise RuntimeError(f"Unexpected AssetType {self}")
+    ortho_pansharpened = "ortho_pansharpened"
 
 
 @dataclass
@@ -74,16 +28,22 @@ class DownloadConfig:
     processing_dir: Path | None = None
 
     # The type of scene
-    item_type: str = "PSScene"
+    item_type: ItemType = ItemType.PSScene
 
     # Asset Type
     asset_type: AssetType = AssetType.ortho_sr
+
+    # Number of bands to use
+    num_bands: int = 8
 
     # Base name for Planet UDM search requests
     udm_search_name: str = "udm2_search"
 
     # Require ground control points
     ground_control: bool = True
+
+    # Quality level
+    quality_category: str = "standard"
 
     # Min allowed clear percent
     clear_percent: float = 0.0
@@ -93,6 +53,9 @@ class DownloadConfig:
 
     # Max number of UDMs to consider (for a single month ~60 is normal per grid)
     udm_limit: int = 1000
+
+    # Max number of items in an order (will break a single order into multiple)
+    order_item_limit: int = 500
 
     # Desired number of pixels per grid point across all images downloaded
     coverage_count: int = 5
@@ -120,3 +83,122 @@ class DownloadConfig:
 
     # Tide model format
     tide_model_format = "GOT"
+
+
+def validate_config(config: DownloadConfig):
+    """Validate the DownloadConfig is compatable with planet api.
+
+    Args:
+        config (DownloadConfig): The config
+
+    Raises:
+        RuntimeError: If it is invalid.
+    """
+    # Verify we can create a valid udm string
+    _ = udm_asset_string(config)
+
+    # Verify we can create a valid asset string
+    _ = planet_asset_string(config)
+
+    # Verify we can create a valid product bundle
+    _ = product_bundle_string(config)
+
+
+def udm_asset_string(config: DownloadConfig) -> str:
+    """Convert the config AssetType and ItemType to a udm string
+
+    Args:
+        config (DownloadConfig): The run config
+
+    Raises:
+        RuntimeError: For invalid AssetType & ItemType combinations
+
+    Returns:
+        str: The udm asset name string
+    """
+    if config.item_type == ItemType.PSScene:
+        if config.asset_type == AssetType.basic:
+            return "basic_udm2"
+        elif config.asset_type in [AssetType.ortho, AssetType.ortho_sr]:
+            return "ortho_udm2"
+        else:
+            raise RuntimeError(f"Unexpected AssetType {config.asset_type}")
+    elif config.item_type == ItemType.SkySatCollect:
+        if config.asset_type in [AssetType.ortho, AssetType.ortho_sr]:
+            return "ortho_analytic_udm2"
+        elif config.asset_type == AssetType.ortho_pansharpened:
+            return "ortho_pansharpened_udm2"
+        else:
+            raise RuntimeError(f"Unexpected AssetType {config.asset_type}")
+    else:
+        raise RuntimeError(f"Unexpected ItemType {config.item_type}")
+
+
+def planet_asset_string(config: DownloadConfig) -> str:
+    if config.item_type == ItemType.PSScene:
+        if config.asset_type == AssetType.ortho_sr:
+            return f"ortho_analytic_{config.num_bands}b_sr"
+        elif config.asset_type == AssetType.ortho:
+            return f"ortho_analytic_{config.num_bands}b"
+        elif config.asset_type == AssetType.basic:
+            return f"basic_analytic_{config.num_bands}b"
+        else:
+            raise RuntimeError(f"Unexpected AssetType {config.asset_type}")
+    elif config.item_type == ItemType.SkySatCollect:
+        if config.asset_type == AssetType.ortho_sr:
+            return "ortho_analytic_sr"
+        elif config.asset_type == AssetType.ortho:
+            return "ortho_analytic"
+        elif config.asset_type == AssetType.ortho_pansharpened:
+            return "ortho_pansharpened"
+        else:
+            raise RuntimeError(f"Unexpected AssetType {config.asset_type}")
+    else:
+        raise RuntimeError(f"Unexpected ItemType {config.item_type}")
+
+
+def product_bundle_string(config: DownloadConfig) -> str:
+    # Based on reference sheet:
+    # https://developers.planet.com/apis/orders/product-bundles-reference/
+
+    if config.item_type == ItemType.PSScene:
+        if config.asset_type == AssetType.ortho_sr:
+            if config.num_bands == 4:
+                return "analytic_sr_udm2"
+            elif config.num_bands == 8:
+                return "analytic_8b_sr_udm2"
+            else:
+                raise RuntimeError(
+                    "Unexpected number of bands {config.num_bands} for {config.item_type} and {config.asset_type}. Expected one of [4, 8]"
+                )
+        elif config.asset_type == AssetType.ortho:
+            if config.num_bands == 3:
+                return "analytic_3b_udm2"
+            elif config.num_bands == 4:
+                return "analytic_udm2"
+            elif config.num_bands == 8:
+                return "analytic_5b"
+            else:
+                raise RuntimeError(
+                    "Unexpected number of bands {config.num_bands} for {config.item_type} and {config.asset_type}. Expected one of [3, 4, 8]"
+                )
+        elif config.asset_type == AssetType.basic:
+            if config.num_bands == 4:
+                return "basic_analytic_udm2"
+            elif config.num_bands == 8:
+                return "basic_analytic_8b_udm2"
+            else:
+                raise RuntimeError(
+                    "Unexpected number of bands {config.num_bands} for {config.item_type} and {config.asset_type}. Expected one of [4, 8]"
+                )
+        else:
+            raise RuntimeError(f"Unexpected AssetType {config.asset_type}")
+    elif config.item_type == ItemType.SkySatCollect:
+        if config.asset_type in [AssetType.ortho, AssetType.ortho_sr]:
+            return "analytic_udm2"
+        elif config.asset_type == AssetType.ortho_pansharpened:
+            return "pansharpened_udm2"
+        else:
+            raise RuntimeError(f"Unexpected AssetType {config.asset_type}")
+    else:
+        raise RuntimeError(f"Unexpected ItemType {config.item_type}")

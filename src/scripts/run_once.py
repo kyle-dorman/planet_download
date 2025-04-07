@@ -74,11 +74,17 @@ def main(
 
     # Loop through scripts, years, and months
     for script in scripts:
-        click.secho(f"🚀 Running {script} for Start: {start_date.date}, End: {end_date.date}", fg="cyan")
+        click.secho(
+            f"🚀 Running {script} for Start: {start_date.strftime('%Y-%m-%d')}, End: {end_date.strftime('%Y-%m-%d')}",
+            fg="cyan",
+        )
 
         run_script(script_path=script, start_date=start_date, end_date=end_date, config_file=config_file)
 
-        click.secho(f"Finished Running {script} for Start: {start_date.date}, End: {end_date.date}", fg="green")
+        click.secho(
+            f"Finished Running {script} for Start: {start_date.strftime('%Y-%m-%d')}, End: {end_date.strftime('%Y-%m-%d')}",
+            fg="green",
+        )
 
         click.secho("All tasks completed successfully!", fg="green")
 

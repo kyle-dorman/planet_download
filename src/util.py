@@ -11,7 +11,7 @@ from tqdm.asyncio import tqdm_asyncio
 from tqdm.notebook import tqdm_notebook
 from tqdm.std import tqdm
 
-from src.config import DownloadConfig
+from src.config import DownloadConfig, validate_config
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,47 @@ def match_tif_path(filepath: Path) -> re.Match[str]:
     (?P<date>\d{8}_\d{6}_\d{2})_     # Acquisition date (YYYYMMDD_HHMMSS_xx)
     (?P<satellite_id>\w{4})_         # Satellite ID (4 characters)
     (?P<product_level>\w{2})_        # Product level (2 digits)
-    (?P<band_product>[\w]+)            # Band product (letters or digits)
+    (?P<band_product>[\w]+)          # Band product (letters or digits)
+    \.(?P<extension>\w+)             # Rest of the file info (no periods)
+    """
+
+    filename_regex = re.compile(filename_regex, re.VERBOSE)
+    match = re.match(filename_regex, filepath.name)
+    if match is None:
+        raise RuntimeError(f"Could not parse tif filename {filepath.name}")
+
+    return match
+
+
+def match_tif_path2(filepath: Path) -> re.Match[str]:
+    #: Regular expression used to extract info from planet filename.
+    # <acquisition date>_<acquisition time>_<satellite_id>_<productLevel>_<bandProduct>.<extension>
+    # 20190312_181227_103a_3B_udm2.tif
+    filename_regex = r"""
+    (?P<date>\d{8}_\d{6})_           # Acquisition date (YYYYMMDD_HHMMSS)
+    (?P<satellite_id>\w{4})_         # Satellite ID (4 characters)
+    (?P<product_level>\w{2})_        # Product level (2 digits)
+    (?P<band_product>[\w]+)          # Band product (letters or digits)
+    \.(?P<extension>\w+)             # Rest of the file info (no periods)
+    """
+
+    filename_regex = re.compile(filename_regex, re.VERBOSE)
+    match = re.match(filename_regex, filepath.name)
+    if match is None:
+        raise RuntimeError(f"Could not parse tif filename {filepath.name}")
+
+    return match
+
+
+def match_tif_path3(filepath: Path) -> re.Match[str]:
+    #: Regular expression used to extract info from planet filename.
+    # <acquisition date>_<acquisition time>_<satellite_id>_<productLevel>_<bandProduct>.<extension>
+    # 20200223_163753_1_0f49_3B_udm2.tif
+    filename_regex = r"""
+    (?P<date>\d{8}_\d{6}_\d{1})_     # Acquisition date (YYYYMMDD_HHMMSS_x)
+    (?P<satellite_id>\w{4})_         # Satellite ID (4 characters)
+    (?P<product_level>\w{2})_        # Product level (2 digits)
+    (?P<band_product>[\w]+)          # Band product (letters or digits)
     \.(?P<extension>\w+)             # Rest of the file info (no periods)
     """
 
@@ -38,9 +78,16 @@ def match_tif_path(filepath: Path) -> re.Match[str]:
 
 def parse_tif_path(filepath: Path) -> datetime:
     #: Date format string used to parse date from filename.
-    date_format = "%Y%m%d_%H%M%S_%f"
-
-    match = match_tif_path(filepath)
+    try:
+        match = match_tif_path(filepath)
+        date_format = "%Y%m%d_%H%M%S_%f"
+    except RuntimeError:
+        try:
+            match = match_tif_path2(filepath)
+            date_format = "%Y%m%d_%H%M%S"
+        except RuntimeError:
+            match = match_tif_path3(filepath)
+            date_format = "%Y%m%d_%H%M%S_%f"
 
     datestr = match.group("date")
     tif_datetime = datetime.strptime(datestr, date_format)
@@ -59,7 +106,13 @@ def geojson_paths(directory: Path) -> list[Path]:
 # strip the _3B_udm2 from the file name
 # e.g. 20230901_182511_53_2486_3B_udm2.tif
 def cleaned_asset_id(filepath: Path) -> str:
-    match = match_tif_path(filepath)
+    try:
+        match = match_tif_path(filepath)
+    except RuntimeError:
+        try:
+            match = match_tif_path2(filepath)
+        except RuntimeError:
+            match = match_tif_path3(filepath)
 
     date = match.group("date")
     satellite_id = match.group("satellite_id")
@@ -140,6 +193,8 @@ def create_config(config_file: Path, start_date: datetime, end_date: datetime) -
     base_config = OmegaConf.structured(DownloadConfig)
     override_config = OmegaConf.load(config_file)
     config: DownloadConfig = OmegaConf.merge(base_config, override_config)  # type: ignore
+
+    validate_config(config)
 
     assert config.grid_dir.exists(), f"grid_dir {config.grid_dir} does not exist!"
 

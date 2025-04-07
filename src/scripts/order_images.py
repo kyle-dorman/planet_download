@@ -3,6 +3,7 @@ import json
 import logging
 import zipfile
 from datetime import datetime
+from itertools import islice
 from pathlib import Path
 
 import click
@@ -10,7 +11,7 @@ import pandas as pd
 from dotenv import find_dotenv, load_dotenv
 from planet import OrdersClient, Session, order_request
 
-from src.config import DownloadConfig
+from src.config import DownloadConfig, product_bundle_string
 from src.util import (
     check_and_create_env,
     create_config,
@@ -25,6 +26,21 @@ from src.util import (
 logger = logging.getLogger(__name__)
 
 
+def batched(iterable, size):
+    # Patch for python 3.12 batched function
+    it = iter(iterable)
+    while True:
+        chunk = list(islice(it, size))
+        if not chunk:
+            break
+        yield chunk
+
+
+def get_order_jsons(grid_dir: Path) -> list[Path]:
+    # Get order json files. Looks for legacy order.json as well as batched order_*.json
+    return list(grid_dir.glob("order_*.json")) + list(grid_dir.glob("order.json"))
+
+
 def unzip_downloads(results_grid_dir: Path) -> None:
     # Location of unziped files
     order_files_dir = results_grid_dir / "files"
@@ -33,29 +49,31 @@ def unzip_downloads(results_grid_dir: Path) -> None:
     if order_files_dir.exists():
         return
 
-    # If no order.json exists then there won't be a zip file.
-    order_path = results_grid_dir / "order.json"
-    if not order_path.exists():
+    # If no order_*.json exists then there won't be a zip file.
+    order_paths = get_order_jsons(results_grid_dir)
+    if not len(order_paths):
         logger.warning(f"Missing order request for {results_grid_dir.stem}")
         return
 
     # Get the order_id to know the name of the zip file
-    with open(order_path) as f:
-        order_request = json.load(f)
-    order_id = str(order_request["id"])
+    for order_path in order_paths:
+        with open(order_path) as f:
+            order_request = json.load(f)
 
-    order_download_dir = results_grid_dir / order_id
-    if not order_download_dir.exists():
-        logger.warning(f"Missing order download for {results_grid_dir.stem}")
-        return
+        order_id = str(order_request["id"])
 
-    # There should just be one zip file in the download folder.
-    order_download_path = list(order_download_dir.glob("*.zip"))[0]
-    # Open the zip file and extract its contents
-    with zipfile.ZipFile(order_download_path, "r") as zip_ref:
-        zip_ref.extractall(results_grid_dir)
+        order_download_dir = results_grid_dir / order_id
+        if not order_download_dir.exists():
+            logger.warning(f"Missing order download for {results_grid_dir.stem} {order_path.name}")
+            continue
 
-    assert order_files_dir.exists()
+        # There should just be one zip file in the download folder.
+        order_download_path = list(order_download_dir.glob("*.zip"))[0]
+        # Open the zip file and extract its contents
+        with zipfile.ZipFile(order_download_path, "r") as zip_ref:
+            zip_ref.extractall(results_grid_dir)
+
+        assert order_files_dir.exists()
 
 
 # Buid the order request including how to clip the image and how to deliver it.
@@ -71,7 +89,9 @@ def build_order_request(
 
     name = f"{start_date}_{end_date}_{filename}"
 
-    products = [order_request.product(item_ids=item_ids, product_bundle=product_bundle, item_type=config.item_type)]
+    products = [
+        order_request.product(item_ids=item_ids, product_bundle=product_bundle, item_type=config.item_type.value)
+    ]
 
     tools = [order_request.clip_tool(aoi)]
 
@@ -96,7 +116,7 @@ async def create_order(sess: Session, request: dict) -> dict:
 
 
 # Create list of orders to create across all grid paths.
-# Skip grids that have existing order.json files.
+# Skip grids that have existing order_*.json files.
 def create_order_requests(
     grid_paths: list[Path],
     save_dir: Path,
@@ -104,7 +124,7 @@ def create_order_requests(
     end_date: datetime,
     config: DownloadConfig,
     in_notebook: bool,
-) -> list[tuple[dict, Path]]:
+) -> list[tuple[dict, int, Path]]:
     order_requests = []
 
     tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
@@ -115,8 +135,8 @@ def create_order_requests(
 
         grid_dir = save_dir / grid_id
 
-        # If the order.json file exists, then we have already scheduled this order.
-        if (grid_dir / "order.json").exists():
+        # If the order_*.json file exists, then we have already scheduled this order.
+        if any(get_order_jsons(grid_dir)):
             continue
 
         item_ids_path = grid_dir / "images_to_download.csv"
@@ -136,20 +156,21 @@ def create_order_requests(
         with open(grid_path) as file:
             grid_geojson = json.load(file)
 
-        product_bundle = config.asset_type.product_bundle_string(start_date)
+        product_bundle = product_bundle_string(config)
 
-        # Create the order request
-        order_request = build_order_request(
-            grid_path.stem,
-            item_ids,
-            product_bundle,
-            grid_geojson,
-            start_date,
-            end_date,
-            config,
-        )
+        # Create order requests
+        for idx, item_batch in enumerate(batched(item_ids, config.order_item_limit)):
+            order_request = build_order_request(
+                f"{grid_path.stem}_{idx}",
+                item_batch,
+                product_bundle,
+                grid_geojson,
+                start_date,
+                end_date,
+                config,
+            )
 
-        order_requests.append((order_request, grid_path.stem))
+            order_requests.append((order_request, idx, grid_path.stem))
 
     return order_requests
 
@@ -172,7 +193,7 @@ async def create_orders(
 
     # Schedule the orders
     try:
-        order_tasks = [asyncio.create_task(create_order(sess, request)) for request, _ in order_requests_to_create]
+        order_tasks = [asyncio.create_task(create_order(sess, request)) for request, _, _ in order_requests_to_create]
         orders = await asyncio.gather(*order_tasks)
     except Exception as e:
         logger.error(f"Error creating order for {start_date} {end_date}")
@@ -182,8 +203,8 @@ async def create_orders(
     logger.info("Saving orders")
 
     # Save the order results to a json file per grid
-    for order, (_, grid_name) in zip(orders, order_requests_to_create):
-        with open(save_dir / grid_name / "order.json", "w") as f:
+    for order, (_, idx, grid_name) in zip(orders, order_requests_to_create):
+        with open(save_dir / grid_name / f"order_{idx}.json", "w") as f:
             json.dump(order, f)
 
 
@@ -283,13 +304,14 @@ async def main_loop(
         for grid_path in grid_paths:
             grid_id = grid_path.stem
             grid_dir = save_path / grid_id
-            order_path = grid_dir / "order.json"
-            if not order_path.exists():
+            order_paths = get_order_jsons(grid_dir)
+            if not any(order_paths):
                 logger.warning(f"Missing order for {grid_id}")
                 continue
-            with open(order_path) as f:
-                order = json.load(f)
-                all_orders.append((order, grid_dir))
+            for order_path in order_paths:
+                with open(order_path) as f:
+                    order = json.load(f)
+                    all_orders.append((order, grid_dir))
 
         # Download all orders
         await download_orders(sess, all_orders, config, in_notebook)
