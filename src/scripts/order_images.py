@@ -11,7 +11,7 @@ import pandas as pd
 from dotenv import find_dotenv, load_dotenv
 from planet import OrdersClient, Session, order_request
 
-from src.config import DownloadConfig
+from src.config import DownloadConfig, product_bundle_string
 from src.util import (
     check_and_create_env,
     create_config,
@@ -89,7 +89,9 @@ def build_order_request(
 
     name = f"{start_date}_{end_date}_{filename}"
 
-    products = [order_request.product(item_ids=item_ids, product_bundle=product_bundle, item_type=config.item_type)]
+    products = [
+        order_request.product(item_ids=item_ids, product_bundle=product_bundle, item_type=str(config.item_type))
+    ]
 
     tools = [order_request.clip_tool(aoi)]
 
@@ -154,7 +156,7 @@ def create_order_requests(
         with open(grid_path) as file:
             grid_geojson = json.load(file)
 
-        product_bundle = config.asset_type.product_bundle_string(start_date)
+        product_bundle = product_bundle_string(config)
 
         # Create order requests
         for idx, item_batch in enumerate(batched(item_ids, config.order_item_limit)):

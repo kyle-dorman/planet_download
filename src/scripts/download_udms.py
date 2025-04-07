@@ -10,7 +10,7 @@ from dotenv import find_dotenv, load_dotenv
 from planet import DataClient, Session, data_filter
 from shapely.geometry import Polygon, shape
 
-from src.config import DownloadConfig
+from src.config import DownloadConfig, planet_asset_string, udm_asset_string
 from src.grid import calculate_intersection_pct, load_grid
 from src.util import (
     check_and_create_env,
@@ -33,7 +33,7 @@ async def create_search(sess: Session, search_name: str, search_filter: dict, co
     search_request = await DataClient(sess).create_search(
         name=search_name,
         search_filter=search_filter,
-        item_types=[config.item_type],
+        item_types=[str(config.item_type)],
     )
 
     logger.debug(f"Created search request {search_name} {search_request['id']}")
@@ -65,7 +65,7 @@ def create_search_filter(grid_path: Path, start_date: datetime, end_date: dateti
     date_range_filter = data_filter.date_range_filter("acquired", gte=start_date, lt=end_date)
 
     # Asset filter
-    asset_type = config.asset_type.planet_asset_string(start_date)
+    asset_type = planet_asset_string(config)
     superdove_filter = data_filter.asset_filter([asset_type])
 
     # Has ground control points
@@ -81,7 +81,7 @@ def create_search_filter(grid_path: Path, start_date: datetime, end_date: dateti
     publishing_filter = data_filter.string_in_filter("publishing_stage", [config.publishing_stage])
 
     # Set item type
-    publishing_filter = data_filter.string_in_filter("item_type", [config.item_type])
+    publishing_filter = data_filter.string_in_filter("item_type", [str(config.item_type)])
 
     # Only get data we can download
     permission_filter = data_filter.permission_filter()
@@ -181,7 +181,7 @@ async def download_udm(
 
     cl = DataClient(sess)
 
-    asset_type_id = config.asset_type.udm_asset_string()
+    asset_type_id = udm_asset_string(config)
 
     # Get Asset
     async def get_asset():

@@ -11,7 +11,7 @@ from tqdm.asyncio import tqdm_asyncio
 from tqdm.notebook import tqdm_notebook
 from tqdm.std import tqdm
 
-from src.config import DownloadConfig
+from src.config import DownloadConfig, validate_config
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +193,8 @@ def create_config(config_file: Path, start_date: datetime, end_date: datetime) -
     base_config = OmegaConf.structured(DownloadConfig)
     override_config = OmegaConf.load(config_file)
     config: DownloadConfig = OmegaConf.merge(base_config, override_config)  # type: ignore
+
+    validate_config(config)
 
     assert config.grid_dir.exists(), f"grid_dir {config.grid_dir} does not exist!"
 
