@@ -12,7 +12,7 @@ from src.grid import (
     open_and_convert_grid,
     reproject_and_crop_to_grid,
 )
-from src.util import create_config, get_tqdm, is_notebook, setup_logger, tif_paths
+from src.util import create_config, get_tqdm, has_crs, is_notebook, setup_logger, tif_paths
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,7 @@ def extract_grid_intermediates(config_file: Path, grid_id: str, start_date: date
     setup_logger()
 
     grid_path = config.grid_dir / f"{grid_id}.geojson"
+    has_crs(grid_path)
     results_grid_dir = save_path / grid_id
 
     # Save the configuration to a YAML file

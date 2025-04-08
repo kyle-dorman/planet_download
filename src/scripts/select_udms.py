@@ -24,7 +24,7 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
-    parse_tif_path,
+    parse_acquisition_datetime,
     setup_logger,
     tif_paths,
 )
@@ -117,7 +117,7 @@ def calculate_udm_coverages(
     with tempfile.TemporaryDirectory() as tempdir:
         for udm_path in udm_paths:
             temp_path = Path(tempdir) / udm_path.name
-            tif_datetime = parse_tif_path(udm_path)
+            tif_datetime = parse_acquisition_datetime(udm_path)
 
             # Get the UDM in the consistent grid. Do not retain the intermediates.
             clipped_image = reproject_and_crop_to_grid(
