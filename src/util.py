@@ -1,9 +1,9 @@
 import asyncio
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Type
+from typing import Any, Iterable, Type
 
 import geopandas as gpd
 from matplotlib.dates import relativedelta
@@ -221,3 +221,18 @@ def has_crs(geojson_path: Path) -> None:
     """
     gdf = gpd.read_file(geojson_path)
     assert gdf.crs is not None, "{} is missing a CRS"
+
+
+def is_within_n_days(target_date: datetime, date_list: Iterable[datetime], n_days: int) -> bool:
+    """
+    Returns True if target_date is within n_days of any date in date_list.
+
+    Args:
+        target_date (datetime): The date to compare.
+        date_list (list of datetime): List of other dates.
+        n_days (int): Number of days as threshold.
+
+    Returns:
+        bool: True if within n_days of any date in the list.
+    """
+    return any(abs(target_date - dt) <= timedelta(days=n_days) for dt in date_list)

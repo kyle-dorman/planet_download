@@ -26,6 +26,10 @@ def reproject_and_crop_udms(
 ) -> None:
     udm_paths = tif_paths(results_grid_dir / "udm")
 
+    if not len(udm_paths):
+        logger.warning(f"Missing UDMS for grid {grid_path.name}. Maybe they were deleted...")
+        return
+
     # Choose CRS to work in
     crs = find_most_common_crs(udm_paths)
 

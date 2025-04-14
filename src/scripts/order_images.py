@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import shutil
 import zipfile
 from datetime import datetime
 from itertools import islice
@@ -41,7 +42,30 @@ def get_order_jsons(grid_dir: Path) -> list[Path]:
     return list(grid_dir.glob("order_*.json")) + list(grid_dir.glob("order.json"))
 
 
+def files_downloaded(results_grid_dir: Path) -> bool:
+    # If there is no "files" directory then the data wasn't downloaded
+    order_files_dir = results_grid_dir / "files"
+    if not order_files_dir.exists():
+        return False
+
+    # If we did not recored the list of file names then the data wasn't extracted successfully.
+    download_file_list = results_grid_dir / "downloaded_files.txt"
+    if not download_file_list.exists():
+        return False
+
+    with open(download_file_list) as f:
+        file_names = [line.strip() for line in f]
+
+    # Verify the data was downloaded, extracted, and matches the list of files expected.
+    return set(file_names) == {p.name for p in order_files_dir.iterdir()}
+
+
 def unzip_downloads(results_grid_dir: Path) -> None:
+    """Unzip the downloaded files.
+
+    Args:
+        results_grid_dir (Path): The place where per date/grid downloaded data is saved.
+    """
     # Location of unziped files
     order_files_dir = results_grid_dir / "files"
 
@@ -74,6 +98,49 @@ def unzip_downloads(results_grid_dir: Path) -> None:
             zip_ref.extractall(results_grid_dir)
 
         assert order_files_dir.exists()
+
+    # Save list of files as a csv
+    all_file_names = [p.name for p in order_files_dir.iterdir()]
+    with open(results_grid_dir / "downloaded_files.txt", "w") as f:
+        f.write("\n".join(all_file_names))
+
+
+def cleanup(results_grid_dir: Path) -> None:
+    """Remove large intermediate files (UDMs and zip files)
+
+    Args:
+        results_grid_dir (Path): The place where per date/grid downloaded data is saved.
+    """
+    # Remove UDMs
+    udm_dir = results_grid_dir / "udm"
+    if udm_dir.exists():
+        shutil.rmtree(udm_dir)
+
+    # If no order_jsons then theres nothing to cleanup
+    if not any(get_order_jsons(results_grid_dir)):
+        return
+
+    # Location of unziped files
+    order_files_dir = results_grid_dir / "files"
+    assert order_files_dir.exists()
+
+    # If no order_*.json exists then there won't be a zip file.
+    order_paths = get_order_jsons(results_grid_dir)
+    assert len(order_paths), f"Missing order request for {results_grid_dir.stem}"
+
+    # Get the order_id to know the name of the zip file
+    for order_path in order_paths:
+        with open(order_path) as f:
+            order_request = json.load(f)
+
+        order_id = str(order_request["id"])
+
+        order_download_dir = results_grid_dir / order_id
+        if not order_download_dir.exists():
+            logger.warning(f"Missing order download for {results_grid_dir.stem} {order_path.name}")
+            continue
+
+        shutil.rmtree(order_download_dir)
 
 
 # Buid the order request including how to clip the image and how to deliver it.
@@ -304,10 +371,15 @@ async def main_loop(
         for grid_path in grid_paths:
             grid_id = grid_path.stem
             grid_dir = save_path / grid_id
+
+            if files_downloaded(grid_dir):
+                continue
+
             order_paths = get_order_jsons(grid_dir)
             if not any(order_paths):
                 logger.warning(f"Missing order for {grid_id}")
                 continue
+
             for order_path in order_paths:
                 with open(order_path) as f:
                     order = json.load(f)
@@ -326,6 +398,9 @@ async def main_loop(
             logger.warning(f"No results directory for {grid_path.stem}")
             continue
         unzip_downloads(results_grid_dir)
+
+        if config.cleanup:
+            cleanup(results_grid_dir)
 
 
 def order_images(

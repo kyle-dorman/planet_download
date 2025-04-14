@@ -24,6 +24,7 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
+    is_within_n_days,
     parse_acquisition_datetime,
     setup_logger,
     tif_paths,
@@ -38,7 +39,7 @@ def update_coverage(
     udm_paths: list[Path],
     coverage_count: np.ndarray,
     grid_pixel_area: float,
-    skip_same_day: bool,
+    skip_same_range: int,
     config: DownloadConfig,
 ) -> list[dict]:
     item_coverage = []
@@ -57,11 +58,11 @@ def update_coverage(
 
         # Determine how much of the image counts would be imporoved by this image
         pct_adding = should_update.sum() / grid_pixel_area
-        skip_for_date = skip_same_day and tif_datetime.date() in dates_added
+        skip_for_date = skip_same_range > 0 and is_within_n_days(tif_datetime, dates_added, skip_same_range)
         include_image = pct_adding > config.percent_added and not skip_for_date
 
         if include_image:
-            dates_added.add(tif_datetime.date())
+            dates_added.add(tif_datetime)
 
         # Save stats for all UDMs
         if not skip_for_date:
@@ -153,20 +154,24 @@ def calculate_udm_coverages(
         udm_paths,
         coverage_count,
         grid_pixel_area,
-        skip_same_day=config.skip_same_day,
+        skip_same_range=config.skip_same_range,
         config=config,
     )
     included_item_idxes = {d["ordered_idx"] for d in item_coverage}
-    skipped_coverage_order = [i for i in coverage_order if i not in included_item_idxes]
-    skipped_item_coverage = update_coverage(
-        skipped_coverage_order,
-        coverages,
-        udm_paths,
-        coverage_count,
-        grid_pixel_area,
-        skip_same_day=False,
-        config=config,
-    )
+
+    if config.use_same_range_if_neccessary:
+        skipped_coverage_order = [i for i in coverage_order if i not in included_item_idxes]
+        skipped_item_coverage = update_coverage(
+            skipped_coverage_order,
+            coverages,
+            udm_paths,
+            coverage_count,
+            grid_pixel_area,
+            skip_same_range=0,
+            config=config,
+        )
+    else:
+        skipped_item_coverage = []
 
     return pd.DataFrame(item_coverage + skipped_item_coverage)
 

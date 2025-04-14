@@ -304,14 +304,17 @@ async def get_download_list(
             # define the original item list. This is all imagery for the given date and grid
             lazy_item_list = await search(sess, grid_path, config, save_path, start_date, end_date)
             item_list = [i async for i in lazy_item_list]
-            logger.info(f"Found {len(item_list)} matching grids for {grid_path.stem}")
+            logger.debug(f"Found {len(item_list)} matching grids for {grid_path.stem}")
 
             # Save all the results
             with open(grid_save_path / "all_search_results.json", "w") as f:
                 json.dump(item_list, f)
 
             filtered_item_list = filter_grid_intersection(grid_path, item_list, config)
-            logger.info(f"Found {len(filtered_item_list)} matching overlapping grids for {grid_path.stem}")
+            if len(item_list):
+                logger.info(
+                    f"Found {len(filtered_item_list)} matching overlapping grids and {len(item_list)} matching grids for {grid_path.stem}."
+                )
 
             # Save the filtered results
             with open(search_results_path, "w") as f:

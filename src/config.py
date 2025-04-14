@@ -27,6 +27,9 @@ class DownloadConfig:
     # Path to copy the final surface reflectance and UDM data to.
     processing_dir: Path | None = None
 
+    # Cleanup zip directory and full size UDMs
+    cleanup: bool = True
+
     # The type of scene
     item_type: ItemType = ItemType.PSScene
 
@@ -72,8 +75,11 @@ class DownloadConfig:
     # Seconds to wait before retrying
     download_backoff: float = 1.0
 
-    # Only include one image per day unless there are less than coverage_count and it is needed.
-    skip_same_day: bool = True
+    # Only include one image per n days. Defer to use_same_range_if_neccessary otherwise.
+    skip_same_range: int = 1
+
+    # If there is less coverage than coverage_count use same date range items.
+    use_same_range_if_neccessary: bool = True
 
     # Tides model directory
     tides_model_directory: Path | None = None
