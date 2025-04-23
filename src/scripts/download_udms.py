@@ -17,6 +17,7 @@ from src.util import (
     create_config,
     geojson_paths,
     get_tqdm,
+    has_crs,
     is_notebook,
     retry_task,
     run_async_function,
@@ -35,12 +36,15 @@ async def create_search(
     with open(grid_path) as file:
         grid_geojson = json.load(file)
 
-    search_request = await DataClient(sess).create_search(
-        name=search_name,
-        search_filter=search_filter,
-        item_types=[config.item_type.value],
-        geometry=grid_geojson,
-    )
+    async def create_search_inner():
+        return await DataClient(sess).create_search(
+            name=search_name,
+            search_filter=search_filter,
+            item_types=[config.item_type.value],
+            geometry=grid_geojson,
+        )
+
+    search_request = await retry_task(create_search_inner, config.download_retries_max, config.download_backoff)
 
     logger.debug(f"Created search request {search_name} {search_request['id']}")
 
@@ -114,13 +118,18 @@ def create_search_filter(start_date: datetime, end_date: datetime, grid_path: Pa
 # Asynchronously performs a search for imagery using the given geometry, and start date.
 # Returns a list of itemsfound by the search.
 async def search(
-    sess: Session, grid_path: Path, config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime
+    sess: Session,
+    grid_path: Path,
+    config: DownloadConfig,
+    grid_save_path: Path,
+    start_date: datetime,
+    end_date: datetime,
 ) -> AsyncIterator[dict]:
     search_filter = create_search_filter(start_date, end_date, grid_path, config)
 
     search_name = f"{config.udm_search_name}_{config.grid_dir.stem}_{start_date}_{end_date}"
     search_request = await create_search(sess, search_name, search_filter, grid_path, config)
-    with open(save_path / "search_request.json", "w") as f:
+    with open(grid_save_path / "search_request.json", "w") as f:
         json.dump(search_request, f)
 
     # search for matches
@@ -153,21 +162,12 @@ def save_search_geom(item_list: list[dict], save_path: Path) -> None:
 
 # Filters UDMs that intersect with the grid less than the DownloadConfig.percent_added.
 # You can do this in the Planet web tool but not the API.
-def filter_grid_intersection(grid_path: Path, item_list: list[dict], config: DownloadConfig) -> list[dict]:
-    grid_geom = load_grid(grid_path)
+def grids_overlap(item: dict, grid_geom: Polygon, config: DownloadConfig) -> bool:
+    geom = item["geometry"]
+    item_geom: Polygon = shape(geom)  # type: ignore
+    pct_intersection = calculate_intersection_pct(grid_geom, item_geom)
 
-    out = []
-    for item in item_list:
-        geom = item["geometry"]
-        item_geom: Polygon = shape(geom)  # type: ignore
-        pct_intersection = calculate_intersection_pct(grid_geom, item_geom)
-
-        if pct_intersection < config.percent_added:
-            continue
-
-        out.append(item)
-
-    return out
+    return pct_intersection >= config.percent_added
 
 
 # Asynchronously downloads a single udm asset for the given item.
@@ -283,48 +283,77 @@ async def download_all_udms(
         logger.info("All assets processed successfully!")
 
 
-# Gets a list of all UDMs which need to be downloaded across all grids.
-async def get_download_list(
-    sess: Session, config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime
+async def process_grid(
+    sess: Session,
+    config: DownloadConfig,
+    save_path: Path,
+    start_date: datetime,
+    end_date: datetime,
+    grid_path: Path,
+    pbar,
 ) -> list[tuple[dict, Path]]:
+    """Handles one grid: searches, filters, and returns download tuples."""
     to_download = []
-    for grid_path in geojson_paths(config.grid_dir):
-        assert grid_path.suffix == ".geojson", f"Invalid path, {grid_path.name}"
-
+    try:
         grid_save_path = save_path / grid_path.stem
-        grid_save_path.parent.mkdir(exist_ok=True, parents=True)
-        udm_save_dir = grid_save_path / "udm"
-        udm_save_dir.mkdir(exist_ok=True, parents=True)
 
-        search_results_path = grid_save_path / "filtered_search_results.json"
-        if search_results_path.exists():
-            with open(search_results_path) as f:
+        results_path = grid_save_path / "filtered_search_results.json"
+        if results_path.exists():
+            with open(results_path) as f:
                 filtered_item_list = json.load(f)
         else:
-            # define the original item list. This is all imagery for the given date and grid
-            lazy_item_list = await search(sess, grid_path, config, save_path, start_date, end_date)
-            item_list = [i async for i in lazy_item_list]
-            logger.info(f"Found {len(item_list)} matching grids for {grid_path.stem}")
+            has_crs(grid_path)
+            grid_poly = load_grid(grid_path)
 
-            # Save all the results
-            with open(grid_save_path / "all_search_results.json", "w") as f:
-                json.dump(item_list, f)
+            async def _collect_lazy():
+                lazy = await search(sess, grid_path, config, grid_save_path, start_date, end_date)
+                return [i async for i in lazy]
 
-            filtered_item_list = filter_grid_intersection(grid_path, item_list, config)
-            logger.info(f"Found {len(filtered_item_list)} matching overlapping grids for {grid_path.stem}")
+            item_list = await retry_task(_collect_lazy, config.download_retries_max, config.download_backoff)
 
-            # Save the filtered results
-            with open(search_results_path, "w") as f:
-                json.dump(filtered_item_list, f)
-            save_search_geom(filtered_item_list, grid_save_path / "search_geometries.geojson")
+            filtered_item_list = []
+            for item in item_list:
+                if grids_overlap(item, grid_poly, config):
+                    filtered_item_list.append(item)
 
-        if len(filtered_item_list) == 0:
-            logger.warning(f"No matches for {grid_path.stem} {start_date} {end_date}")
-            continue
+            if not len(filtered_item_list):
+                logger.debug(f"No matches for {grid_path.stem}")
+            else:
+                udm_save_dir = grid_save_path / "udm"
+                udm_save_dir.mkdir(parents=True, exist_ok=True)
 
-        for item in filtered_item_list:
-            to_download.append((item, udm_save_dir))
+                with open(results_path, "w") as f:
+                    json.dump(filtered_item_list, f)
 
+                save_search_geom(filtered_item_list, grid_save_path / "search_geometries.geojson")
+
+        to_download = [(item, udm_save_dir) for item in filtered_item_list]
+    except Exception as e:
+        logger.error(f"Grid {grid_path.stem} failed: {e}")
+
+    pbar.update(1)
+
+    return to_download
+
+
+# Gets a list of all UDMs which need to be downloaded across all grids.
+async def get_download_list_gather(
+    sess: Session, config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime, in_notebook: bool
+) -> list[tuple[dict, Path]]:
+    grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
+    total = len(grid_paths)
+    to_download: list[tuple[dict, Path]] = []
+
+    tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
+    with tqdm(total=total, desc="Grids", position=0, dynamic_ncols=True) as pbar:
+        for i in range(0, total, config.grid_search_batch_size):
+            batch = grid_paths[i: i + config.grid_search_batch_size]
+            coros = [
+                process_grid(sess, config, save_path, start_date, end_date, grid_path, pbar) for grid_path in batch
+            ]
+            results = await asyncio.gather(*coros)
+            for res in results:
+                to_download.extend(res)
     return to_download
 
 
@@ -333,7 +362,7 @@ async def main_loop(
     config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime, in_notebook: bool
 ) -> None:
     async with Session() as sess:
-        to_download = await get_download_list(sess, config, save_path, start_date, end_date)
+        to_download = await get_download_list_gather(sess, config, save_path, start_date, end_date, in_notebook)
 
         # loop through and download all the UDM2 files for the given date and grid
         await download_all_udms(to_download, sess, config, in_notebook)

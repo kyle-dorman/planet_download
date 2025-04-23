@@ -1,3 +1,4 @@
+import json
 import logging
 import tempfile
 from datetime import datetime
@@ -24,7 +25,8 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
-    parse_tif_path,
+    is_within_n_days,
+    parse_acquisition_datetime,
     setup_logger,
     tif_paths,
 )
@@ -38,7 +40,7 @@ def update_coverage(
     udm_paths: list[Path],
     coverage_count: np.ndarray,
     grid_pixel_area: float,
-    skip_same_day: bool,
+    skip_same_range: int,
     config: DownloadConfig,
 ) -> list[dict]:
     item_coverage = []
@@ -57,11 +59,11 @@ def update_coverage(
 
         # Determine how much of the image counts would be imporoved by this image
         pct_adding = should_update.sum() / grid_pixel_area
-        skip_for_date = skip_same_day and tif_datetime.date() in dates_added
+        skip_for_date = skip_same_range > 0 and is_within_n_days(tif_datetime, dates_added, skip_same_range)
         include_image = pct_adding > config.percent_added and not skip_for_date
 
         if include_image:
-            dates_added.add(tif_datetime.date())
+            dates_added.add(tif_datetime)
 
         # Save stats for all UDMs
         if not skip_for_date:
@@ -94,7 +96,7 @@ def calculate_udm_coverages(
     udm_paths = tif_paths(results_grid_dir / "udm")
 
     if not len(udm_paths):
-        logger.warning(f"No UDMs for {grid_path.stem}")
+        logger.debug(f"No UDMs for {grid_path.stem}")
         return None
 
     geojson_file = results_grid_dir / "search_geometries.geojson"
@@ -107,8 +109,12 @@ def calculate_udm_coverages(
     # Load Target Grid and convert grid to udm crs
     grid = open_and_convert_grid(grid_path, crs)
 
+    with open(results_grid_dir / "filtered_search_results.json") as f:
+        data = json.load(f)
+        ground_sample_distance = data[0]["properties"]["pixel_resolution"]
+
     # Create the new consistent grid which all UDMs wil be cropped to
-    profile_update = create_polygon_aligned_profile_update(grid, crs, config.ground_sample_distance)
+    profile_update = create_polygon_aligned_profile_update(grid, crs, ground_sample_distance)
 
     # Crop the UDMs
     logger.debug("Cropping UDMs & calculating coverage")
@@ -117,7 +123,7 @@ def calculate_udm_coverages(
     with tempfile.TemporaryDirectory() as tempdir:
         for udm_path in udm_paths:
             temp_path = Path(tempdir) / udm_path.name
-            tif_datetime = parse_tif_path(udm_path)
+            tif_datetime = parse_acquisition_datetime(udm_path)
 
             # Get the UDM in the consistent grid. Do not retain the intermediates.
             clipped_image = reproject_and_crop_to_grid(
@@ -131,7 +137,7 @@ def calculate_udm_coverages(
             clear_coverage = calculate_mask_coverage(
                 clipped_image,
                 grid,
-                config.ground_sample_distance,
+                ground_sample_distance,
             )
             item_geom: Polygon = udm_gdf[udm_gdf.id == cleaned_asset_id(udm_path)].geometry.iloc[0]  # type: ignore
             intersection_pct = calculate_intersection_pct(grid, item_geom)
@@ -145,7 +151,7 @@ def calculate_udm_coverages(
     # A grid of coverage counters
     coverage_count = np.zeros((profile_update["height"], profile_update["width"]), dtype=np.int32)
     # Area covered by the target grid
-    grid_pixel_area = grid.area / config.ground_sample_distance**2
+    grid_pixel_area = grid.area / ground_sample_distance**2
 
     item_coverage = update_coverage(
         coverage_order,
@@ -153,20 +159,24 @@ def calculate_udm_coverages(
         udm_paths,
         coverage_count,
         grid_pixel_area,
-        skip_same_day=config.skip_same_day,
+        skip_same_range=config.skip_same_range,
         config=config,
     )
     included_item_idxes = {d["ordered_idx"] for d in item_coverage}
-    skipped_coverage_order = [i for i in coverage_order if i not in included_item_idxes]
-    skipped_item_coverage = update_coverage(
-        skipped_coverage_order,
-        coverages,
-        udm_paths,
-        coverage_count,
-        grid_pixel_area,
-        skip_same_day=False,
-        config=config,
-    )
+
+    if config.use_same_range_if_neccessary:
+        skipped_coverage_order = [i for i in coverage_order if i not in included_item_idxes]
+        skipped_item_coverage = update_coverage(
+            skipped_coverage_order,
+            coverages,
+            udm_paths,
+            coverage_count,
+            grid_pixel_area,
+            skip_same_range=0,
+            config=config,
+        )
+    else:
+        skipped_item_coverage = []
 
     return pd.DataFrame(item_coverage + skipped_item_coverage)
 
@@ -188,7 +198,7 @@ def select_udms(
 
     tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
 
-    for grid_path in tqdm(geojson_paths(config.grid_dir)):
+    for grid_path in tqdm(geojson_paths(config.grid_dir, in_notebook=True, check_crs=False)):
         grid_id = grid_path.stem
         logger.debug(f"Selecting best UDMs for {grid_id}")
 

@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +13,7 @@ from src.grid import (
     open_and_convert_grid,
     reproject_and_crop_to_grid,
 )
-from src.util import create_config, get_tqdm, is_notebook, setup_logger, tif_paths
+from src.util import create_config, get_tqdm, has_crs, is_notebook, setup_logger, tif_paths
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +27,22 @@ def reproject_and_crop_udms(
 ) -> None:
     udm_paths = tif_paths(results_grid_dir / "udm")
 
+    if not len(udm_paths):
+        logger.warning(f"Missing UDMS for grid {grid_path.name}. Maybe they were deleted...")
+        return
+
     # Choose CRS to work in
     crs = find_most_common_crs(udm_paths)
 
     # Load Target Grid and convert grid to base udm crs
     grid_transformed = open_and_convert_grid(grid_path, crs)
 
+    with open(results_grid_dir / "filtered_search_results.json") as f:
+        data = json.load(f)
+        ground_sample_distance = data[0]["properties"]["pixel_resolution"]
+
     # Create the new consistent grid
-    profile_update = create_polygon_aligned_profile_update(grid_transformed, crs, config.ground_sample_distance)
+    profile_update = create_polygon_aligned_profile_update(grid_transformed, crs, ground_sample_distance)
 
     # Save reprojected and cropped intermediates
     cropped_dir = results_grid_dir / "udm_cropped"
@@ -76,8 +85,12 @@ def reproject_and_crop_download_outputs(results_grid_dir: Path, grid_path: Path,
     # Load Target Grid and convert grid to base udm crs
     grid_transformed = open_and_convert_grid(grid_path, crs)
 
+    with open(results_grid_dir / "filtered_search_results.json") as f:
+        data = json.load(f)
+        ground_sample_distance = data[0]["properties"]["pixel_resolution"]
+
     # Create the new consistent grid
-    profile_update = create_polygon_aligned_profile_update(grid_transformed, crs, config.ground_sample_distance)
+    profile_update = create_polygon_aligned_profile_update(grid_transformed, crs, ground_sample_distance)
 
     for file_paths, name in [(udm_file_paths, "udm"), (asset_file_paths, "asset")]:
         # Save reprojected and cropped intermediates
@@ -114,6 +127,7 @@ def extract_grid_intermediates(config_file: Path, grid_id: str, start_date: date
     setup_logger()
 
     grid_path = config.grid_dir / f"{grid_id}.geojson"
+    has_crs(grid_path)
     results_grid_dir = save_path / grid_id
 
     # Save the configuration to a YAML file

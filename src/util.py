@@ -1,10 +1,12 @@
 import asyncio
 import logging
+import multiprocessing as mp
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Type
+from typing import Any, Iterable, Type
 
+import geopandas as gpd
 from matplotlib.dates import relativedelta
 from omegaconf import OmegaConf
 from tqdm.asyncio import tqdm_asyncio
@@ -16,108 +18,72 @@ from src.config import DownloadConfig, validate_config
 logger = logging.getLogger(__name__)
 
 
-def match_tif_path(filepath: Path) -> re.Match[str]:
-    #: Regular expression used to extract info from planet filename.
-    # <acquisition date>_<acquisition time>_<satellite_id>_<productLevel>_<bandProduct>.<extension>
-    # 20221001_175121_27_2460_3B_udm2.tif
-    filename_regex = r"""
-    (?P<date>\d{8}_\d{6}_\d{2})_     # Acquisition date (YYYYMMDD_HHMMSS_xx)
-    (?P<satellite_id>\w{4})_         # Satellite ID (4 characters)
-    (?P<product_level>\w{2})_        # Product level (2 digits)
-    (?P<band_product>[\w]+)          # Band product (letters or digits)
-    \.(?P<extension>\w+)             # Rest of the file info (no periods)
+def parse_acquisition_datetime(filepath: Path) -> datetime:
+    """
+    #: Regular expression used to extract acquisition datetime from Planet filename.
+    # <acquisition date>_<acquisition time>_<...>.<extension>
+    #
+    # Examples:
+    # - 20221001_175121_27_2460_3B_udm2.tif
+    # - 20190312_181227_103a_3B_udm2.tif
+    # - 20200223_163753_1_0f49_3B_udm2.tif
+    # - 20190630_214558_ssc8_u0003_pansharpened_udm2.tif
     """
 
-    filename_regex = re.compile(filename_regex, re.VERBOSE)
-    match = re.match(filename_regex, filepath.name)
-    if match is None:
-        raise RuntimeError(f"Could not parse tif filename {filepath.name}")
+    pattern = re.compile(
+        r"""
+        (?P<date>\d{8})_        # YYYYMMDD
+        (?P<time>\d{6})         # HHMMSS
+    """,
+        re.VERBOSE,
+    )
 
-    return match
+    match = pattern.search(filepath.stem)
+    assert match is not None, f"Could not parse filename {filepath.stem}"
 
-
-def match_tif_path2(filepath: Path) -> re.Match[str]:
-    #: Regular expression used to extract info from planet filename.
-    # <acquisition date>_<acquisition time>_<satellite_id>_<productLevel>_<bandProduct>.<extension>
-    # 20190312_181227_103a_3B_udm2.tif
-    filename_regex = r"""
-    (?P<date>\d{8}_\d{6})_           # Acquisition date (YYYYMMDD_HHMMSS)
-    (?P<satellite_id>\w{4})_         # Satellite ID (4 characters)
-    (?P<product_level>\w{2})_        # Product level (2 digits)
-    (?P<band_product>[\w]+)          # Band product (letters or digits)
-    \.(?P<extension>\w+)             # Rest of the file info (no periods)
-    """
-
-    filename_regex = re.compile(filename_regex, re.VERBOSE)
-    match = re.match(filename_regex, filepath.name)
-    if match is None:
-        raise RuntimeError(f"Could not parse tif filename {filepath.name}")
-
-    return match
-
-
-def match_tif_path3(filepath: Path) -> re.Match[str]:
-    #: Regular expression used to extract info from planet filename.
-    # <acquisition date>_<acquisition time>_<satellite_id>_<productLevel>_<bandProduct>.<extension>
-    # 20200223_163753_1_0f49_3B_udm2.tif
-    filename_regex = r"""
-    (?P<date>\d{8}_\d{6}_\d{1})_     # Acquisition date (YYYYMMDD_HHMMSS_x)
-    (?P<satellite_id>\w{4})_         # Satellite ID (4 characters)
-    (?P<product_level>\w{2})_        # Product level (2 digits)
-    (?P<band_product>[\w]+)          # Band product (letters or digits)
-    \.(?P<extension>\w+)             # Rest of the file info (no periods)
-    """
-
-    filename_regex = re.compile(filename_regex, re.VERBOSE)
-    match = re.match(filename_regex, filepath.name)
-    if match is None:
-        raise RuntimeError(f"Could not parse tif filename {filepath.name}")
-
-    return match
-
-
-def parse_tif_path(filepath: Path) -> datetime:
-    #: Date format string used to parse date from filename.
-    try:
-        match = match_tif_path(filepath)
-        date_format = "%Y%m%d_%H%M%S_%f"
-    except RuntimeError:
-        try:
-            match = match_tif_path2(filepath)
-            date_format = "%Y%m%d_%H%M%S"
-        except RuntimeError:
-            match = match_tif_path3(filepath)
-            date_format = "%Y%m%d_%H%M%S_%f"
-
-    datestr = match.group("date")
-    tif_datetime = datetime.strptime(datestr, date_format)
-
-    return tif_datetime
+    return datetime.strptime(match.group("date") + match.group("time"), "%Y%m%d%H%M%S")
 
 
 def tif_paths(directory: Path) -> list[Path]:
     return sorted([pth for pth in directory.iterdir() if pth.suffix == ".tif"])
 
 
-def geojson_paths(directory: Path) -> list[Path]:
-    return sorted([pth for pth in directory.iterdir() if pth.suffix == ".geojson"])
+def geojson_paths(directory: Path, in_notebook: bool, check_crs: bool) -> list[Path]:
+    """Get geojson files in a directory
+
+    Args:
+        directory (Path): The directory to look in
+
+    Returns:
+        list[Path]: A list of paths. Paths are validated for CRS.
+    """
+    logger.info("Finding grids")
+    dir_search = ""
+    current = next((p for p in directory.iterdir() if p.is_dir()), None)
+    while current is not None:
+        dir_search += "*/"
+        current = next((p for p in current.iterdir() if p.is_dir()), None)
+
+    paths = sorted(list(directory.glob(f"{dir_search}*.geojson")))
+    logger.info(f"Found {len(paths)} grids")
+
+    if check_crs:
+        check_all_has_crs(paths, workers=mp.cpu_count(), in_notebook=in_notebook)
+
+    return paths
 
 
 # strip the _3B_udm2 from the file name
 # e.g. 20230901_182511_53_2486_3B_udm2.tif
 def cleaned_asset_id(filepath: Path) -> str:
-    try:
-        match = match_tif_path(filepath)
-    except RuntimeError:
-        try:
-            match = match_tif_path2(filepath)
-        except RuntimeError:
-            match = match_tif_path3(filepath)
-
-    date = match.group("date")
-    satellite_id = match.group("satellite_id")
-
-    return date + "_" + satellite_id
+    if "3B_udm2" in filepath.stem:
+        # 20200223_163753_1_0f49_3B_udm2.tif
+        return "_".join(filepath.stem.split("_")[:-2])
+    elif "pansharpened_udm2" in filepath.stem:
+        # 20190630_214558_ssc8_u0003_pansharpened_udm2
+        return "_".join(filepath.stem.split("_")[:-2])
+    else:
+        raise RuntimeError(f"Unexpected asset name {filepath.stem}")
 
 
 # Retry wrapper around an async function that may fail
@@ -256,3 +222,47 @@ def get_tqdm(use_async: bool, in_notebook: bool) -> Type[tqdm]:
         return tqdm_asyncio
     else:
         return tqdm
+
+
+def has_crs(geojson_path: Path) -> None:
+    """Verify geojson file has a CRS
+
+    Args:
+        geojson_path (Path): _description_
+    """
+    gdf = gpd.read_file(geojson_path)
+    assert gdf.crs is not None, "{} is missing a CRS"
+
+
+def check_all_has_crs(paths: list[Path], workers: int, in_notebook: bool):
+    """
+    Parallelize has_crs over a list of Path objects.
+    Errors out on the first failure.
+    """
+    this_tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
+    # use fork instead of spawn to avoid semaphore leaks on macOS
+    ctx = mp.get_context("fork")
+    with ctx.Pool(processes=workers) as pool:
+        # executor.map will raise the first exception it encounters
+        for _ in this_tqdm(
+            pool.imap_unordered(has_crs, paths, chunksize=100),
+            total=len(paths),
+            desc="Checking CRS",
+        ):
+            pass
+    logger.info(f"✅ All {len(paths)} files have a CRS.")
+
+
+def is_within_n_days(target_date: datetime, date_list: Iterable[datetime], n_days: int) -> bool:
+    """
+    Returns True if target_date is within n_days of any date in date_list.
+
+    Args:
+        target_date (datetime): The date to compare.
+        date_list (list of datetime): List of other dates.
+        n_days (int): Number of days as threshold.
+
+    Returns:
+        bool: True if within n_days of any date in the list.
+    """
+    return any(abs(target_date - dt) <= timedelta(days=n_days) for dt in date_list)
