@@ -1,3 +1,4 @@
+import json
 import logging
 import tempfile
 from datetime import datetime
@@ -95,7 +96,7 @@ def calculate_udm_coverages(
     udm_paths = tif_paths(results_grid_dir / "udm")
 
     if not len(udm_paths):
-        logger.warning(f"No UDMs for {grid_path.stem}")
+        logger.debug(f"No UDMs for {grid_path.stem}")
         return None
 
     geojson_file = results_grid_dir / "search_geometries.geojson"
@@ -108,8 +109,12 @@ def calculate_udm_coverages(
     # Load Target Grid and convert grid to udm crs
     grid = open_and_convert_grid(grid_path, crs)
 
+    with open(results_grid_dir / "filtered_search_results.json") as f:
+        data = json.load(f)
+        ground_sample_distance = data[0]["properties"]["pixel_resolution"]
+
     # Create the new consistent grid which all UDMs wil be cropped to
-    profile_update = create_polygon_aligned_profile_update(grid, crs, config.ground_sample_distance)
+    profile_update = create_polygon_aligned_profile_update(grid, crs, ground_sample_distance)
 
     # Crop the UDMs
     logger.debug("Cropping UDMs & calculating coverage")
@@ -132,7 +137,7 @@ def calculate_udm_coverages(
             clear_coverage = calculate_mask_coverage(
                 clipped_image,
                 grid,
-                config.ground_sample_distance,
+                ground_sample_distance,
             )
             item_geom: Polygon = udm_gdf[udm_gdf.id == cleaned_asset_id(udm_path)].geometry.iloc[0]  # type: ignore
             intersection_pct = calculate_intersection_pct(grid, item_geom)
@@ -146,7 +151,7 @@ def calculate_udm_coverages(
     # A grid of coverage counters
     coverage_count = np.zeros((profile_update["height"], profile_update["width"]), dtype=np.int32)
     # Area covered by the target grid
-    grid_pixel_area = grid.area / config.ground_sample_distance**2
+    grid_pixel_area = grid.area / ground_sample_distance**2
 
     item_coverage = update_coverage(
         coverage_order,
@@ -193,7 +198,7 @@ def select_udms(
 
     tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
 
-    for grid_path in tqdm(geojson_paths(config.grid_dir)):
+    for grid_path in tqdm(geojson_paths(config.grid_dir, in_notebook=True, check_crs=False)):
         grid_id = grid_path.stem
         logger.debug(f"Selecting best UDMs for {grid_id}")
 

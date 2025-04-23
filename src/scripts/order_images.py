@@ -76,7 +76,7 @@ def unzip_downloads(results_grid_dir: Path) -> None:
     # If no order_*.json exists then there won't be a zip file.
     order_paths = get_order_jsons(results_grid_dir)
     if not len(order_paths):
-        logger.warning(f"Missing order request for {results_grid_dir.stem}")
+        logger.debug(f"Missing order request for {results_grid_dir.stem}")
         return
 
     # Get the order_id to know the name of the zip file
@@ -88,7 +88,7 @@ def unzip_downloads(results_grid_dir: Path) -> None:
 
         order_download_dir = results_grid_dir / order_id
         if not order_download_dir.exists():
-            logger.warning(f"Missing order download for {results_grid_dir.stem} {order_path.name}")
+            logger.debug(f"Missing order download for {results_grid_dir.stem} {order_path.name}")
             continue
 
         # There should just be one zip file in the download folder.
@@ -98,6 +98,9 @@ def unzip_downloads(results_grid_dir: Path) -> None:
             zip_ref.extractall(results_grid_dir)
 
         assert order_files_dir.exists()
+
+    if not order_files_dir.exists():
+        return
 
     # Save list of files as a csv
     all_file_names = [p.name for p in order_files_dir.iterdir()]
@@ -122,7 +125,8 @@ def cleanup(results_grid_dir: Path) -> None:
 
     # Location of unziped files
     order_files_dir = results_grid_dir / "files"
-    assert order_files_dir.exists()
+    if not order_files_dir.exists():
+        return
 
     # If no order_*.json exists then there won't be a zip file.
     order_paths = get_order_jsons(results_grid_dir)
@@ -137,7 +141,7 @@ def cleanup(results_grid_dir: Path) -> None:
 
         order_download_dir = results_grid_dir / order_id
         if not order_download_dir.exists():
-            logger.warning(f"Missing order download for {results_grid_dir.stem} {order_path.name}")
+            logger.debug(f"Missing order download for {results_grid_dir.stem} {order_path.name}")
             continue
 
         shutil.rmtree(order_download_dir)
@@ -173,10 +177,17 @@ def build_order_request(
 
 
 # Create an order for image data
-async def create_order(sess: Session, request: dict) -> dict:
+async def create_order(sess: Session, request: dict, config: DownloadConfig) -> dict:
     logger.debug(f"Creating order {request['name']}")
     cl = OrdersClient(sess)
-    order = await cl.create_order(request)
+
+    # Schedule the orders
+    # Wait for the order to be ready
+    async def create_order_retry():
+        return await cl.create_order(request)
+
+    order = await retry_task(create_order_retry, config.download_retries_max, config.download_backoff)
+
     logger.debug(f"Finished creating order {request['name']}")
 
     return order
@@ -208,7 +219,7 @@ def create_order_requests(
 
         item_ids_path = grid_dir / "images_to_download.csv"
         if not item_ids_path.exists():
-            logger.warning(f"Missing item download list for {grid_id}")
+            logger.debug(f"Missing item download list for {grid_id}")
             continue
 
         # Get the list of item_ids to download
@@ -258,9 +269,10 @@ async def create_orders(
 
     logger.info(f"Starting {len(order_requests_to_create)} order requests")
 
-    # Schedule the orders
     try:
-        order_tasks = [asyncio.create_task(create_order(sess, request)) for request, _, _ in order_requests_to_create]
+        order_tasks = [
+            asyncio.create_task(create_order(sess, request, config)) for request, _, _ in order_requests_to_create
+        ]
         orders = await asyncio.gather(*order_tasks)
     except Exception as e:
         logger.error(f"Error creating order for {start_date} {end_date}")
@@ -359,7 +371,7 @@ async def download_orders(
 async def main_loop(
     config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime, in_notebook: bool
 ) -> None:
-    grid_paths = geojson_paths(config.grid_dir)
+    grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
 
     async with Session() as sess:
         await create_orders(sess, grid_paths, save_path, start_date, end_date, config, in_notebook)
@@ -377,7 +389,7 @@ async def main_loop(
 
             order_paths = get_order_jsons(grid_dir)
             if not any(order_paths):
-                logger.warning(f"Missing order for {grid_id}")
+                logger.debug(f"Missing order for {grid_id}")
                 continue
 
             for order_path in order_paths:

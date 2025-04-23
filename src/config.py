@@ -66,9 +66,6 @@ class DownloadConfig:
     # Minimum percent of area an image needs to contribute to coverage to be considered
     percent_added: float = 0.05
 
-    # The ground sample distance of the data (Can we get there somewhere else?)
-    ground_sample_distance: float = 3.0
-
     # Number of times to retry downloading imagegry data
     download_retries_max: int = 3
 
@@ -80,6 +77,9 @@ class DownloadConfig:
 
     # If there is less coverage than coverage_count use same date range items.
     use_same_range_if_neccessary: bool = True
+
+    # Max grids to search at once
+    grid_search_batch_size: int = 1000
 
     # Tides model directory
     tides_model_directory: Path | None = None

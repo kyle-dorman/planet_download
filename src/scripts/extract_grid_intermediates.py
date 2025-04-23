@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -36,8 +37,12 @@ def reproject_and_crop_udms(
     # Load Target Grid and convert grid to base udm crs
     grid_transformed = open_and_convert_grid(grid_path, crs)
 
+    with open(results_grid_dir / "filtered_search_results.json") as f:
+        data = json.load(f)
+        ground_sample_distance = data[0]["properties"]["pixel_resolution"]
+
     # Create the new consistent grid
-    profile_update = create_polygon_aligned_profile_update(grid_transformed, crs, config.ground_sample_distance)
+    profile_update = create_polygon_aligned_profile_update(grid_transformed, crs, ground_sample_distance)
 
     # Save reprojected and cropped intermediates
     cropped_dir = results_grid_dir / "udm_cropped"
@@ -80,8 +85,12 @@ def reproject_and_crop_download_outputs(results_grid_dir: Path, grid_path: Path,
     # Load Target Grid and convert grid to base udm crs
     grid_transformed = open_and_convert_grid(grid_path, crs)
 
+    with open(results_grid_dir / "filtered_search_results.json") as f:
+        data = json.load(f)
+        ground_sample_distance = data[0]["properties"]["pixel_resolution"]
+
     # Create the new consistent grid
-    profile_update = create_polygon_aligned_profile_update(grid_transformed, crs, config.ground_sample_distance)
+    profile_update = create_polygon_aligned_profile_update(grid_transformed, crs, ground_sample_distance)
 
     for file_paths, name in [(udm_file_paths, "udm"), (asset_file_paths, "asset")]:
         # Save reprojected and cropped intermediates

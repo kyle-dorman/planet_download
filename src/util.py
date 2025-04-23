@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import multiprocessing as mp
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -47,7 +48,7 @@ def tif_paths(directory: Path) -> list[Path]:
     return sorted([pth for pth in directory.iterdir() if pth.suffix == ".tif"])
 
 
-def geojson_paths(directory: Path) -> list[Path]:
+def geojson_paths(directory: Path, in_notebook: bool, check_crs: bool) -> list[Path]:
     """Get geojson files in a directory
 
     Args:
@@ -56,9 +57,19 @@ def geojson_paths(directory: Path) -> list[Path]:
     Returns:
         list[Path]: A list of paths. Paths are validated for CRS.
     """
-    paths = sorted([pth for pth in directory.iterdir() if pth.suffix == ".geojson"])
-    for path in paths:
-        has_crs(path)
+    logger.info("Finding grids")
+    dir_search = ""
+    current = next((p for p in directory.iterdir() if p.is_dir()), None)
+    while current is not None:
+        dir_search += "*/"
+        current = next((p for p in current.iterdir() if p.is_dir()), None)
+
+    paths = sorted(list(directory.glob(f"{dir_search}*.geojson")))
+    logger.info(f"Found {len(paths)} grids")
+
+    if check_crs:
+        check_all_has_crs(paths, workers=mp.cpu_count(), in_notebook=in_notebook)
+
     return paths
 
 
@@ -221,6 +232,25 @@ def has_crs(geojson_path: Path) -> None:
     """
     gdf = gpd.read_file(geojson_path)
     assert gdf.crs is not None, "{} is missing a CRS"
+
+
+def check_all_has_crs(paths: list[Path], workers: int, in_notebook: bool):
+    """
+    Parallelize has_crs over a list of Path objects.
+    Errors out on the first failure.
+    """
+    this_tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
+    # use fork instead of spawn to avoid semaphore leaks on macOS
+    ctx = mp.get_context("fork")
+    with ctx.Pool(processes=workers) as pool:
+        # executor.map will raise the first exception it encounters
+        for _ in this_tqdm(
+            pool.imap_unordered(has_crs, paths, chunksize=100),
+            total=len(paths),
+            desc="Checking CRS",
+        ):
+            pass
+    logger.info(f"✅ All {len(paths)} files have a CRS.")
 
 
 def is_within_n_days(target_date: datetime, date_list: Iterable[datetime], n_days: int) -> bool:
