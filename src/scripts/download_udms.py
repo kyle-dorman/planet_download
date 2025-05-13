@@ -127,8 +127,7 @@ async def search(
 ) -> AsyncIterator[dict]:
     search_filter = create_search_filter(start_date, end_date, grid_path, config)
 
-    search_name = f"{config.udm_search_name}_{config.grid_dir.stem}_{start_date}_{end_date}"
-    search_request = await create_search(sess, search_name, search_filter, grid_path, config)
+    search_request = await create_search(sess, config.udm_search_name, search_filter, grid_path, config)
     with open(grid_save_path / "search_request.json", "w") as f:
         json.dump(search_request, f)
 

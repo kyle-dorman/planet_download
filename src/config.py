@@ -39,7 +39,7 @@ class DownloadConfig:
     # Number of bands to use
     num_bands: int = 8
 
-    # Base name for Planet UDM search requests
+    # Name for Planet UDM search requests
     udm_search_name: str = "udm2_search"
 
     # Require ground control points
