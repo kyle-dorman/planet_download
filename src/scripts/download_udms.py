@@ -128,6 +128,7 @@ async def search(
     search_filter = create_search_filter(start_date, end_date, grid_path, config)
 
     search_request = await create_search(sess, config.udm_search_name, search_filter, grid_path, config)
+    grid_save_path.mkdir(exist_ok=True, parents=True)
     with open(grid_save_path / "search_request.json", "w") as f:
         json.dump(search_request, f)
 
