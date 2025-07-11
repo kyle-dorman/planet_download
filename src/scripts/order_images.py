@@ -177,14 +177,15 @@ def build_order_request(
 
 
 # Create an order for image data
-async def create_order(sess: Session, request: dict, config: DownloadConfig) -> dict:
+async def create_order(sess: Session, request: dict, config: DownloadConfig, sem: asyncio.Semaphore) -> dict:
     logger.debug(f"Creating order {request['name']}")
     cl = OrdersClient(sess)
 
     # Schedule the orders
     # Wait for the order to be ready
     async def create_order_retry():
-        return await cl.create_order(request)
+        async with sem:
+            return await cl.create_order(request)
 
     order = await retry_task(create_order_retry, config.download_retries_max, config.download_backoff)
 
@@ -269,9 +270,12 @@ async def create_orders(
 
     logger.info(f"Starting {len(order_requests_to_create)} order requests")
 
+    # download items with limited concurrency and one progress bar
+    sem = asyncio.Semaphore(config.max_concurrent_tasks)
+
     try:
         order_tasks = [
-            asyncio.create_task(create_order(sess, request, config)) for request, _, _ in order_requests_to_create
+            asyncio.create_task(create_order(sess, request, config, sem)) for request, _, _ in order_requests_to_create
         ]
         orders = await asyncio.gather(*order_tasks)
     except Exception as e:
@@ -289,7 +293,7 @@ async def create_orders(
 
 # Download an order zip file. If order folder already exists, skip over it.
 async def download_order(
-    sess: Session, order: dict, save_dir: Path, config: DownloadConfig, step_progress_bars: dict
+    sess: Session, order: dict, save_dir: Path, config: DownloadConfig, step_progress_bars: dict, sem: asyncio.Semaphore
 ) -> tuple[str, str, str] | None:
     grid_id = save_dir.stem
     order_id = str(order["id"])
@@ -298,7 +302,8 @@ async def download_order(
 
     # Wait for the order to be ready
     async def wait_order():
-        await cl.wait(order_id)
+        async with sem:
+            await cl.wait(order_id)
 
     try:
         await retry_task(wait_order, config.download_retries_max, config.download_backoff)
@@ -308,7 +313,8 @@ async def download_order(
 
     # Download the files
     async def download_order():
-        await cl.download_order(order_id, directory=save_dir, overwrite=False, progress_bar=False)
+        async with sem:
+            await cl.download_order(order_id, directory=save_dir, overwrite=False, progress_bar=False)
 
     try:
         await retry_task(download_order, config.download_retries_max, config.download_backoff)
@@ -334,6 +340,9 @@ async def download_orders(
     total_assets = len(orders_to_download)
     logger.info(f"Downloading {total_assets} orders")
 
+    # download items with limited concurrency and one progress bar
+    sem = asyncio.Semaphore(config.max_concurrent_tasks)
+
     # Initialize progress bars for each step
     tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
     with (
@@ -349,7 +358,7 @@ async def download_orders(
 
         # Run all tasks and collect results
         tasks = [
-            asyncio.create_task(download_order(sess, order, output_path, config, step_progress_bars))
+            asyncio.create_task(download_order(sess, order, output_path, config, step_progress_bars, sem))
             for order, output_path in orders_to_download
         ]
 

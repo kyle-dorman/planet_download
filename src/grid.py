@@ -171,3 +171,13 @@ def reproject_and_crop_to_grid(
         os.remove(repro_path)
 
     return clipped_image
+
+
+# Filters UDMs that intersect with the grid less than the DownloadConfig.percent_added.
+# You can do this in the Planet web tool but not the API.
+def grids_overlap(item: dict, grid_geom: Polygon, min_percent_added: float) -> bool:
+    geom = item["geometry"]
+    item_geom: Polygon = shape(geom)  # type: ignore
+    pct_intersection = calculate_intersection_pct(grid_geom, item_geom)
+
+    return pct_intersection >= min_percent_added

@@ -3,15 +3,14 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, Sequence
 
 import click
 from dotenv import find_dotenv, load_dotenv
 from planet import DataClient, Session, data_filter
-from shapely.geometry import Polygon, shape
 
 from src.config import DownloadConfig, ItemType, planet_asset_string, udm_asset_string
-from src.grid import calculate_intersection_pct, load_grid
+from src.grid import grids_overlap, load_grid
 from src.util import (
     check_and_create_env,
     create_config,
@@ -51,23 +50,27 @@ async def create_search(
     return search_request
 
 
-# Asynchronously performs a search using the given search request.
+# Asynchronously performs a search with the given search filter.
 # Returns a list of items found by the search.
-async def do_search(sess: Session, search_request: dict, config: DownloadConfig) -> AsyncIterator[dict]:
-    logger.debug(f"Search for udm2 matches {search_request['id']}")
+def do_search(
+    sess: Session, grid_id: str, search_filter: dict, grid_geojson: dict, config: DownloadConfig
+) -> AsyncIterator[dict]:
+    logger.debug(f"Search for udm2 matches for grid_id {grid_id}")
 
-    items = DataClient(sess).run_search(search_id=search_request["id"], limit=config.udm_limit)
+    items = DataClient(sess).search(
+        item_types=[config.item_type.value],
+        search_filter=search_filter,
+        geometry=grid_geojson,
+        limit=config.udm_limit,
+    )
 
-    logger.debug(f"Executed udm2 search {search_request['id']}")
+    logger.debug(f"Executed udm2 search for grid_id {grid_id}")
 
     return items
 
 
 # Define the search filters used to find the UDMs
-def create_search_filter(start_date: datetime, end_date: datetime, grid_path: Path, config: DownloadConfig) -> dict:
-    with open(grid_path) as file:
-        grid_geojson = json.load(file)
-
+def create_search_filter(start_date: datetime, end_date: datetime, grid_geojson: dict, config: DownloadConfig) -> dict:
     # geometry filter
     geom_filter = data_filter.geometry_filter(grid_geojson)
 
@@ -116,24 +119,22 @@ def create_search_filter(start_date: datetime, end_date: datetime, grid_path: Pa
 
 
 # Asynchronously performs a search for imagery using the given geometry, and start date.
-# Returns a list of itemsfound by the search.
+# Returns a list of items found by the search.
 async def search(
     sess: Session,
     grid_path: Path,
     config: DownloadConfig,
-    grid_save_path: Path,
     start_date: datetime,
     end_date: datetime,
 ) -> AsyncIterator[dict]:
-    search_filter = create_search_filter(start_date, end_date, grid_path, config)
+    with open(grid_path) as file:
+        grid_geojson = json.load(file)
 
-    search_request = await create_search(sess, config.udm_search_name, search_filter, grid_path, config)
-    grid_save_path.mkdir(exist_ok=True, parents=True)
-    with open(grid_save_path / "search_request.json", "w") as f:
-        json.dump(search_request, f)
+    search_filter = create_search_filter(start_date, end_date, grid_geojson, config)
 
-    # search for matches
-    return await do_search(sess, search_request, config)
+    return do_search(
+        sess=sess, grid_id=grid_path.stem, search_filter=search_filter, grid_geojson=grid_geojson, config=config
+    )
 
 
 # Saves the geometries of the search results to a GeoJSON file in the specified output path.
@@ -160,21 +161,16 @@ def save_search_geom(item_list: list[dict], save_path: Path) -> None:
     logger.debug(f"Saved search geometry to {save_path}")
 
 
-# Filters UDMs that intersect with the grid less than the DownloadConfig.percent_added.
-# You can do this in the Planet web tool but not the API.
-def grids_overlap(item: dict, grid_geom: Polygon, config: DownloadConfig) -> bool:
-    geom = item["geometry"]
-    item_geom: Polygon = shape(geom)  # type: ignore
-    pct_intersection = calculate_intersection_pct(grid_geom, item_geom)
-
-    return pct_intersection >= config.percent_added
-
-
 # Asynchronously downloads a single udm asset for the given item.
 # Activates and waits for the asset to be ready before downloading it to the specified path.
 # Skips files that already exist.
 async def download_udm(
-    order: dict, sess: Session, output_path: Path, config: DownloadConfig, step_progress_bars: dict
+    order: dict,
+    sess: Session,
+    output_path: Path,
+    config: DownloadConfig,
+    step_progress_bars: dict,
+    sem: asyncio.Semaphore,
 ) -> tuple[str, str, str, str] | None:
     udm_id = order["id"]
     grid_id = output_path.parent.name
@@ -191,9 +187,10 @@ async def download_udm(
 
     # Get Asset
     async def get_asset():
-        return await cl.get_asset(
-            item_type_id=order["properties"]["item_type"], item_id=udm_id, asset_type_id=asset_type_id
-        )
+        async with sem:
+            return await cl.get_asset(
+                item_type_id=order["properties"]["item_type"], item_id=udm_id, asset_type_id=asset_type_id
+            )
 
     try:
         asset_desc = await retry_task(get_asset, config.download_retries_max, config.download_backoff)
@@ -204,7 +201,8 @@ async def download_udm(
 
     # Activate Asset
     async def activate_asset():
-        await cl.activate_asset(asset=asset_desc)
+        async with sem:
+            await cl.activate_asset(asset=asset_desc)
 
     try:
         await retry_task(activate_asset, config.download_retries_max, config.download_backoff)
@@ -215,7 +213,8 @@ async def download_udm(
 
     # Wait for Asset
     async def wait_asset():
-        return await cl.wait_asset(asset=asset_desc)
+        async with sem:
+            return await cl.wait_asset(asset=asset_desc)
 
     try:
         asset = await retry_task(wait_asset, config.download_retries_max, config.download_backoff)
@@ -226,7 +225,8 @@ async def download_udm(
 
     # Download Asset
     async def download_asset():
-        await cl.download_asset(asset=asset, directory=output_path, overwrite=False, progress_bar=False)
+        async with sem:
+            await cl.download_asset(asset=asset, directory=output_path, overwrite=False, progress_bar=False)
 
     try:
         await retry_task(download_asset, config.download_retries_max, config.download_backoff)
@@ -247,6 +247,9 @@ async def download_all_udms(
     # Get notebook vs async progress bar class
     tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
 
+    # download items with limited concurrency and one progress bar
+    sem = asyncio.Semaphore(config.max_concurrent_tasks)
+
     # Initialize progress bars for each step
     with (
         tqdm(total=total_assets, desc="Step 1: Getting Assets", position=0, dynamic_ncols=True) as get_pbar,
@@ -265,7 +268,7 @@ async def download_all_udms(
 
         # Run all tasks and collect results
         tasks = [
-            asyncio.create_task(download_udm(item, sess, output_path, config, step_progress_bars))
+            asyncio.create_task(download_udm(item, sess, output_path, config, step_progress_bars, sem))
             for item, output_path in item_lists
         ]
 
@@ -291,7 +294,8 @@ async def process_grid(
     end_date: datetime,
     grid_path: Path,
     pbar,
-) -> list[tuple[dict, Path]]:
+    sem: asyncio.Semaphore,
+) -> Sequence[tuple[dict, Path]]:
     """Handles one grid: searches, filters, and returns download tuples."""
     to_download = []
     try:
@@ -306,14 +310,15 @@ async def process_grid(
             grid_poly = load_grid(grid_path)
 
             async def _collect_lazy():
-                lazy = await search(sess, grid_path, config, grid_save_path, start_date, end_date)
+                lazy = await search(sess, grid_path, config, start_date, end_date)
                 return [i async for i in lazy]
 
-            item_list = await retry_task(_collect_lazy, config.download_retries_max, config.download_backoff)
+            async with sem:
+                item_list = await retry_task(_collect_lazy, config.download_retries_max, config.download_backoff)
 
             filtered_item_list = []
             for item in item_list:
-                if grids_overlap(item, grid_poly, config):
+                if grids_overlap(item, grid_poly, config.percent_added):
                     filtered_item_list.append(item)
 
             if not len(filtered_item_list):
@@ -342,19 +347,18 @@ async def get_download_list_gather(
 ) -> list[tuple[dict, Path]]:
     grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
     total = len(grid_paths)
-    to_download: list[tuple[dict, Path]] = []
+
+    # download items with limited concurrency and one progress bar
+    sem = asyncio.Semaphore(config.max_concurrent_tasks)
 
     tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
     with tqdm(total=total, desc="Grids", position=0, dynamic_ncols=True) as pbar:
-        for i in range(0, total, config.grid_search_batch_size):
-            batch = grid_paths[i: i + config.grid_search_batch_size]
-            coros = [
-                process_grid(sess, config, save_path, start_date, end_date, grid_path, pbar) for grid_path in batch
-            ]
-            results = await asyncio.gather(*coros)
-            for res in results:
-                to_download.extend(res)
-    return to_download
+        coros = [
+            process_grid(sess, config, save_path, start_date, end_date, grid_path, pbar, sem)
+            for grid_path in grid_paths
+        ]
+        to_downloads = await asyncio.gather(*coros)
+    return [a for b in to_downloads for a in b]
 
 
 # Main loop. Download all overlapping UDMs for a given date and directory of grids.

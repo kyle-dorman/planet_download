@@ -25,6 +25,10 @@ def reproject_and_crop_udms(
     grid_path: Path,
     config: DownloadConfig,
 ) -> None:
+    if not (results_grid_dir / "udm").exists():
+        logger.warning(f"Missing UDMS for grid {grid_path.name}. Maybe they were deleted...")
+        return
+
     udm_paths = tif_paths(results_grid_dir / "udm")
 
     if not len(udm_paths):

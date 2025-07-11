@@ -39,9 +39,6 @@ class DownloadConfig:
     # Number of bands to use
     num_bands: int = 8
 
-    # Name for Planet UDM search requests
-    udm_search_name: str = "udm2_search"
-
     # Require ground control points
     ground_control: bool = True
 
@@ -56,6 +53,9 @@ class DownloadConfig:
 
     # Max number of UDMs to consider (for a single month ~60 is normal per grid)
     udm_limit: int = 1000
+
+    # Max tasks in flight at a time
+    max_concurrent_tasks: int = 1000
 
     # Max number of items in an order (will break a single order into multiple)
     order_item_limit: int = 500
@@ -77,18 +77,6 @@ class DownloadConfig:
 
     # If there is less coverage than coverage_count use same date range items.
     use_same_range_if_neccessary: bool = True
-
-    # Max grids to search at once
-    grid_search_batch_size: int = 1000
-
-    # Tides model directory
-    tides_model_directory: Path | None = None
-
-    # Tide model
-    tide_model_name = "GOT4.10"
-
-    # Tide model format
-    tide_model_format = "GOT"
 
 
 def validate_config(config: DownloadConfig):

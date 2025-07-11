@@ -1,3 +1,4 @@
+import numpy as np
 import asyncio
 import logging
 import multiprocessing as mp
@@ -266,3 +267,28 @@ def is_within_n_days(target_date: datetime, date_list: Iterable[datetime], n_day
         bool: True if within n_days of any date in the list.
     """
     return any(abs(target_date - dt) <= timedelta(days=n_days) for dt in date_list)
+
+
+def broad_band(all_bands: np.ndarray, no_data: np.ndarray) -> np.ndarray:
+    # Natural colour broad band, log scaled
+    #     red_recipe = 0.16666 * all_bands[5] + 0.66666 * all_bands[5] \
+    #                  + 0.08333 * all_bands[5] + 0.4 * all_bands[6] + 0.4 * all_bands[7]
+    #     green_recipe = 0.16666 *  all_bands[2] + 0.66666 *  all_bands[3] \
+    #                    + 0.16666 *  all_bands[4]
+    #     blue_recipe = 0.16666 *  all_bands[0] + 0.66666 *  all_bands[0] \
+    #                    + 0.16666 *  all_bands[1]
+
+    red_recipe = np.mean(all_bands[5:], axis=0)
+    green_recipe = np.mean(all_bands[2:5], axis=0)
+    blue_recipe = np.mean(all_bands[:2], axis=0)
+
+    rgb_log = np.dstack((np.log10(1.0 + red_recipe), np.log10(1.0 + green_recipe), np.log10(1.0 + blue_recipe)))
+
+    mins = np.array([rgb_log[:, :, i][~no_data].min() for i in range(3)])
+
+    rgb_log -= mins
+    rgb_log /= rgb_log.max(axis=(0, 1))
+
+    rgb_log[no_data] = 0.0
+
+    return rgb_log
