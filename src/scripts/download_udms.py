@@ -298,9 +298,9 @@ async def process_grid(
 ) -> Sequence[tuple[dict, Path]]:
     """Handles one grid: searches, filters, and returns download tuples."""
     to_download = []
+    grid_save_path = save_path / grid_path.stem
+    udm_save_dir = grid_save_path / "udm"
     try:
-        grid_save_path = save_path / grid_path.stem
-
         results_path = grid_save_path / "filtered_search_results.json"
         if results_path.exists():
             with open(results_path) as f:
@@ -324,7 +324,6 @@ async def process_grid(
             if not len(filtered_item_list):
                 logger.debug(f"No matches for {grid_path.stem}")
             else:
-                udm_save_dir = grid_save_path / "udm"
                 udm_save_dir.mkdir(parents=True, exist_ok=True)
 
                 with open(results_path, "w") as f:

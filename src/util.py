@@ -1,4 +1,3 @@
-import numpy as np
 import asyncio
 import logging
 import multiprocessing as mp
@@ -8,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable, Type
 
 import geopandas as gpd
+import numpy as np
 from matplotlib.dates import relativedelta
 from omegaconf import OmegaConf
 from tqdm.asyncio import tqdm_asyncio
