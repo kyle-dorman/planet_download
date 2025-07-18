@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import shutil
 import zipfile
 from datetime import datetime
@@ -93,9 +94,13 @@ def unzip_downloads(results_grid_dir: Path) -> None:
 
         # There should just be one zip file in the download folder.
         order_download_path = list(order_download_dir.glob("*.zip"))[0]
-        # Open the zip file and extract its contents
-        with zipfile.ZipFile(order_download_path, "r") as zip_ref:
-            zip_ref.extractall(results_grid_dir)
+        try:
+            # Open the zip file and extract its contents
+            with zipfile.ZipFile(order_download_path) as zip_ref:
+                zip_ref.extractall(results_grid_dir)
+        except zipfile.BadZipFile as e:
+            logger.error(f"Path: {order_download_path}")
+            raise e
 
         assert order_files_dir.exists()
 
@@ -315,6 +320,10 @@ async def download_order(
     async def download_order():
         async with sem:
             await cl.download_order(order_id, directory=save_dir, overwrite=False, progress_bar=False)
+            for pth in save_dir.glob("*.zip"):
+                if not zipfile.is_zipfile(pth):
+                    os.remove(pth)
+                    raise zipfile.BadZipFile(f"File is not a zip file {pth}")
 
     try:
         await retry_task(download_order, config.download_retries_max, config.download_backoff)
