@@ -52,6 +52,7 @@ class DownloadConfig:
     publishing_stage: str = "finalized"
 
     # Max number of UDMs to consider (for a single month ~60 is normal per grid)
+    # When set to 0, no maximum is applied.
     udm_limit: int = 1000
 
     # Max tasks in flight at a time
