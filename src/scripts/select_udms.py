@@ -31,6 +31,14 @@ from src.util import (
     tif_paths,
 )
 
+import warnings  # isort: skip
+
+warnings.filterwarnings(
+    "ignore",
+    message=".*errors='ignore'.*is deprecated.*",
+    category=FutureWarning,
+)
+
 logger = logging.getLogger(__name__)
 
 

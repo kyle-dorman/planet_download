@@ -1,11 +1,14 @@
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, Sequence
 
 import click
+import rasterio
+import rasterio.errors
 from dotenv import find_dotenv, load_dotenv
 from planet import DataClient, Session, data_filter
 
@@ -70,10 +73,7 @@ def do_search(
 
 
 # Define the search filters used to find the UDMs
-def create_search_filter(start_date: datetime, end_date: datetime, grid_geojson: dict, config: DownloadConfig) -> dict:
-    # geometry filter
-    geom_filter = data_filter.geometry_filter(grid_geojson)
-
+def create_search_filter(start_date: datetime, end_date: datetime, config: DownloadConfig) -> dict:
     # date range filter
     date_range_filter = data_filter.date_range_filter("acquired", gte=start_date, lt=end_date)
 
@@ -90,17 +90,12 @@ def create_search_filter(start_date: datetime, end_date: datetime, grid_geojson:
     # Only get data we can download
     permission_filter = data_filter.permission_filter()
 
-    # Set item type
-    item_filter = data_filter.string_in_filter("item_type", [config.item_type.value])
-
     filters = [
-        geom_filter,
         date_range_filter,
         asset_filter,
         quality_category_filter,
         clear_percent_filter,
         permission_filter,
-        item_filter,
     ]
 
     # Set publishing level filter
@@ -130,7 +125,7 @@ async def search(
     with open(grid_path) as file:
         grid_geojson = json.load(file)
 
-    search_filter = create_search_filter(start_date, end_date, grid_geojson, config)
+    search_filter = create_search_filter(start_date, end_date, config)
 
     return do_search(
         sess=sess, grid_id=grid_path.stem, search_filter=search_filter, grid_geojson=grid_geojson, config=config
@@ -175,7 +170,7 @@ async def download_udm(
     udm_id = order["id"]
     grid_id = output_path.parent.name
 
-    # Exit early if there is a directory that matches the order_id.
+    # Exit early if there is a file that matches the order_id.
     if any(pth.stem.startswith(udm_id) for pth in output_path.iterdir()):
         for v in step_progress_bars.values():
             v.update(1)
@@ -226,7 +221,14 @@ async def download_udm(
     # Download Asset
     async def download_asset():
         async with sem:
-            await cl.download_asset(asset=asset, directory=output_path, overwrite=False, progress_bar=False)
+            pth = await cl.download_asset(asset=asset, directory=output_path, overwrite=False, progress_bar=False)
+            # Ensure pth is valid, otherwise remove and (hopefully) retry
+            try:
+                with rasterio.open(pth) as src:
+                    src.meta
+            except rasterio.errors.RasterioIOError as e:
+                os.remove(pth)
+                raise e
 
     try:
         await retry_task(download_asset, config.download_retries_max, config.download_backoff)
@@ -360,8 +362,8 @@ async def get_download_list_gather(
             process_grid(sess, config, save_path, start_date, end_date, grid_path, pbar, sem)
             for grid_path in grid_paths
         ]
-        to_downloads = await asyncio.gather(*coros)
-    return [a for b in to_downloads for a in b]
+        grid_to_downloads = await asyncio.gather(*coros)
+    return [to_download for to_downloads in grid_to_downloads for to_download in to_downloads]
 
 
 # Main loop. Download all overlapping UDMs for a given date and directory of grids.
