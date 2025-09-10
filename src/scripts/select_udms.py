@@ -25,7 +25,7 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
-    is_within_n_days,
+    is_within_n_hours,
     parse_acquisition_datetime,
     setup_logger,
     tif_paths,
@@ -67,7 +67,7 @@ def update_coverage(
 
         # Determine how much of the image counts would be imporoved by this image
         pct_adding = 100 * should_update.sum() / grid_pixel_area
-        skip_for_date = skip_same_range_days > 0 and is_within_n_days(
+        skip_for_date = skip_same_range_days > 0 and is_within_n_hours(
             tif_datetime, dates_added, n_hours=int(skip_same_range_days * 24)
         )
         include_image = pct_adding > config.percent_added and not skip_for_date

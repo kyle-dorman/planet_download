@@ -254,17 +254,17 @@ def check_all_has_crs(paths: list[Path], workers: int, in_notebook: bool):
     logger.info(f"✅ All {len(paths)} files have a CRS.")
 
 
-def is_within_n_days(target_date: datetime, date_list: Iterable[datetime], n_hours: int) -> bool:
+def is_within_n_hours(target_date: datetime, date_list: Iterable[datetime], n_hours: int) -> bool:
     """
-    Returns True if target_date is within n_days of any date in date_list.
+    Returns True if target_date is within n_hours of any date in date_list.
 
     Args:
         target_date (datetime): The date to compare.
         date_list (list of datetime): List of other dates.
-        n_days (int): Number of days as threshold.
+        n_hours (int): Number of hours as threshold.
 
     Returns:
-        bool: True if within n_days of any date in the list.
+        bool: True if within n_hours of any date in the list.
     """
     return any(abs(target_date - dt) <= timedelta(hours=n_hours) for dt in date_list)
 
