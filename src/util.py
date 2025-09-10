@@ -254,7 +254,7 @@ def check_all_has_crs(paths: list[Path], workers: int, in_notebook: bool):
     logger.info(f"✅ All {len(paths)} files have a CRS.")
 
 
-def is_within_n_days(target_date: datetime, date_list: Iterable[datetime], n_days: int) -> bool:
+def is_within_n_days(target_date: datetime, date_list: Iterable[datetime], n_hours: int) -> bool:
     """
     Returns True if target_date is within n_days of any date in date_list.
 
@@ -266,7 +266,7 @@ def is_within_n_days(target_date: datetime, date_list: Iterable[datetime], n_day
     Returns:
         bool: True if within n_days of any date in the list.
     """
-    return any(abs(target_date - dt) <= timedelta(days=n_days) for dt in date_list)
+    return any(abs(target_date - dt) <= timedelta(hours=n_hours) for dt in date_list)
 
 
 def broad_band(all_bands: np.ndarray, no_data: np.ndarray) -> np.ndarray:

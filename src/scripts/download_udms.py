@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, Sequence
+from uuid import uuid4
 
 import click
 import rasterio
@@ -12,7 +13,7 @@ import rasterio.errors
 from dotenv import find_dotenv, load_dotenv
 from planet import DataClient, Session, data_filter
 
-from src.config import DownloadConfig, ItemType, planet_asset_string, udm_asset_string
+from src.config import DownloadConfig, ItemType, QualityCategory, planet_asset_string, udm_asset_string
 from src.grid import grids_overlap, load_grid
 from src.util import (
     check_and_create_env,
@@ -29,14 +30,59 @@ from src.util import (
 logger = logging.getLogger(__name__)
 
 
+# Define the search filters used to find the UDMs
+def create_search_filter(start_date: datetime, end_date: datetime, config: DownloadConfig) -> dict:
+    # date range filter
+    date_range_filter = data_filter.date_range_filter("acquired", gte=start_date, lt=end_date)
+
+    # Asset filter
+    asset_type = planet_asset_string(config)
+    asset_filter = data_filter.asset_filter([asset_type])
+
+    # Minimum "clear" pct of the image.
+    clear_percent_filter = data_filter.range_filter("clear_percent", gte=config.clear_percent)
+
+    # Only get data we can download
+    permission_filter = data_filter.permission_filter()
+
+    filters = [
+        date_range_filter,
+        asset_filter,
+        clear_percent_filter,
+        permission_filter,
+    ]
+
+    # Only get "quality" images
+    if config.quality_category is not None and config.quality_category == QualityCategory.Standard:
+        quality_category_filter = data_filter.std_quality_filter()
+        filters.append(quality_category_filter)
+
+    # Define the filter for Dove/SuperDove instruments
+    if config.instrument is not None and len(config.instrument):
+        instrument_filter = data_filter.string_in_filter("instrument", [inst.value for inst in config.instrument])
+        filters.append(instrument_filter)
+
+    # Set publishing level filter
+    if config.item_type == ItemType.PSScene:
+        if config.publishing_stage is not None:
+            publishing_filter = data_filter.string_in_filter("publishing_stage", [config.publishing_stage.value])
+            filters.append(publishing_filter)
+
+        # Has ground control points
+        ground_control_filter = data_filter.string_in_filter("ground_control", [str(config.ground_control).lower()])
+        filters.append(ground_control_filter)
+
+    # combine all of the filters
+    all_filters = data_filter.and_filter(filters)
+
+    return all_filters
+
+
 # Asynchronously creates a search request with the given search filter. Returns the created search request.
 async def create_search(
-    sess: Session, search_name: str, search_filter: dict, grid_path: Path, config: DownloadConfig
+    sess: Session, search_name: str, search_filter: dict, grid_geojson: dict, config: DownloadConfig
 ) -> dict:
     logger.debug(f"Creating search request {search_name}")
-
-    with open(grid_path) as file:
-        grid_geojson = json.load(file)
 
     async def create_search_inner():
         return await DataClient(sess).create_search(
@@ -53,64 +99,16 @@ async def create_search(
     return search_request
 
 
-# Asynchronously performs a search with the given search filter.
+# Asynchronously performs a search using the given search request.
 # Returns a list of items found by the search.
-def do_search(
-    sess: Session, grid_id: str, search_filter: dict, grid_geojson: dict, config: DownloadConfig
-) -> AsyncIterator[dict]:
-    logger.debug(f"Search for udm2 matches for grid_id {grid_id}")
+def do_search(sess: Session, search_request: dict, config: DownloadConfig) -> AsyncIterator[dict]:
+    logger.debug(f"Search for udm2 matches {search_request['id']}")
 
-    items = DataClient(sess).search(
-        item_types=[config.item_type.value],
-        search_filter=search_filter,
-        geometry=grid_geojson,
-        limit=config.udm_limit,
-    )
+    items = DataClient(sess).run_search(search_id=search_request["id"], limit=config.udm_limit)
 
-    logger.debug(f"Executed udm2 search for grid_id {grid_id}")
+    logger.debug(f"Executed udm2 search {search_request['id']}")
 
     return items
-
-
-# Define the search filters used to find the UDMs
-def create_search_filter(start_date: datetime, end_date: datetime, config: DownloadConfig) -> dict:
-    # date range filter
-    date_range_filter = data_filter.date_range_filter("acquired", gte=start_date, lt=end_date)
-
-    # Asset filter
-    asset_type = planet_asset_string(config)
-    asset_filter = data_filter.asset_filter([asset_type])
-
-    # Only get "quality" images
-    quality_category_filter = data_filter.string_in_filter("quality_category", [config.quality_category])
-
-    # Minimum "clear" pct of the image.
-    clear_percent_filter = data_filter.range_filter("clear_percent", gte=config.clear_percent)
-
-    # Only get data we can download
-    permission_filter = data_filter.permission_filter()
-
-    filters = [
-        date_range_filter,
-        asset_filter,
-        quality_category_filter,
-        clear_percent_filter,
-        permission_filter,
-    ]
-
-    # Set publishing level filter
-    if config.item_type == ItemType.PSScene:
-        publishing_filter = data_filter.string_in_filter("publishing_stage", [config.publishing_stage])
-        filters.append(publishing_filter)
-
-        # Has ground control points
-        ground_control_filter = data_filter.string_in_filter("ground_control", [str(config.ground_control).lower()])
-        filters.append(ground_control_filter)
-
-    # combine all of the filters
-    all_filters = data_filter.and_filter(filters)
-
-    return all_filters
 
 
 # Asynchronously performs a search for imagery using the given geometry, and start date.
@@ -118,18 +116,31 @@ def create_search_filter(start_date: datetime, end_date: datetime, config: Downl
 async def search(
     sess: Session,
     grid_path: Path,
+    grid_save_path: Path,
     config: DownloadConfig,
     start_date: datetime,
     end_date: datetime,
 ) -> AsyncIterator[dict]:
-    with open(grid_path) as file:
-        grid_geojson = json.load(file)
+    search_request_path = grid_save_path / "search_request.json"
+    if search_request_path.exists():
+        with search_request_path.open(encoding="utf-8") as f:
+            search_request = json.load(f)
+    else:
+        with open(grid_path) as file:
+            grid_geojson = json.load(file)
 
-    search_filter = create_search_filter(start_date, end_date, config)
+        search_filter = create_search_filter(start_date, end_date, config)
+        search_name = "pldl_" + str(uuid4())
 
-    return do_search(
-        sess=sess, grid_id=grid_path.stem, search_filter=search_filter, grid_geojson=grid_geojson, config=config
-    )
+        search_request = await create_search(
+            sess=sess, search_name=search_name, search_filter=search_filter, grid_geojson=grid_geojson, config=config
+        )
+
+        with search_request_path.open("w") as f:
+            json.dump(search_request, f)
+
+    # search for matches
+    return do_search(sess, search_request, config)
 
 
 # Saves the geometries of the search results to a GeoJSON file in the specified output path.
@@ -302,7 +313,6 @@ async def process_grid(
     to_download = []
     grid_id = grid_path.stem
     grid_save_path = save_path / grid_id
-    udm_save_dir = grid_save_path / "udm"
     if grid_save_path.exists() and (grid_save_path / "images_to_download.csv").exists():
         logger.debug(f"Already filtered grid {grid_id}")
         return []
@@ -314,9 +324,17 @@ async def process_grid(
         else:
             has_crs(grid_path)
             grid_poly = load_grid(grid_path)
+            grid_save_path.mkdir(parents=True, exist_ok=True)
 
             async def _collect_lazy():
-                lazy = await search(sess, grid_path, config, start_date, end_date)
+                lazy = await search(
+                    sess=sess,
+                    grid_path=grid_path,
+                    grid_save_path=grid_save_path,
+                    config=config,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
                 return [i async for i in lazy]
 
             async with sem:
@@ -330,8 +348,8 @@ async def process_grid(
             if not len(filtered_item_list):
                 logger.debug(f"No matches for {grid_path.stem}")
             else:
+                udm_save_dir = grid_save_path / "udm"
                 udm_save_dir.mkdir(parents=True, exist_ok=True)
-
                 with open(results_path, "w") as f:
                     json.dump(filtered_item_list, f)
 

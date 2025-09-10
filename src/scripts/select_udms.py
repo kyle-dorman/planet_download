@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from shapely import Polygon
 
-from src.config import DownloadConfig
+from src.config import CLOUD_BAND, DownloadConfig
 from src.grid import (
     calculate_intersection_pct,
     calculate_mask_coverage,
@@ -48,7 +48,7 @@ def update_coverage(
     udm_paths: list[Path],
     coverage_count: np.ndarray,
     grid_pixel_area: float,
-    skip_same_range: int,
+    skip_same_range_days: float,
     config: DownloadConfig,
 ) -> list[dict]:
     item_coverage = []
@@ -66,8 +66,10 @@ def update_coverage(
         should_update = np.logical_and(valid_pixels, to_add)
 
         # Determine how much of the image counts would be imporoved by this image
-        pct_adding = should_update.sum() / grid_pixel_area
-        skip_for_date = skip_same_range > 0 and is_within_n_days(tif_datetime, dates_added, skip_same_range)
+        pct_adding = 100 * should_update.sum() / grid_pixel_area
+        skip_for_date = skip_same_range_days > 0 and is_within_n_days(
+            tif_datetime, dates_added, n_hours=int(skip_same_range_days * 24)
+        )
         include_image = pct_adding > config.percent_added and not skip_for_date
 
         if include_image:
@@ -134,22 +136,23 @@ def calculate_udm_coverages(
             tif_datetime = parse_acquisition_datetime(udm_path)
 
             # Get the UDM in the consistent grid. Do not retain the intermediates.
-            clipped_image = reproject_and_crop_to_grid(
+            cloud_img = reproject_and_crop_to_grid(
                 tif_path=udm_path,
                 grid_geom=grid,
                 profile_update=profile_update,
                 repro_path=temp_path,
                 out_path=None,
-                channels=1,
+                bands=[CLOUD_BAND],
             )
+            clear_img = (cloud_img != 1).astype(np.uint8)
             clear_coverage = calculate_mask_coverage(
-                clipped_image,
+                clear_img,
                 grid,
                 ground_sample_distance,
             )
             item_geom: Polygon = udm_gdf[udm_gdf.id == cleaned_asset_id(udm_path)].geometry.iloc[0]  # type: ignore
             intersection_pct = calculate_intersection_pct(grid, item_geom)
-            coverages.append((clipped_image, clear_coverage, intersection_pct, tif_datetime))
+            coverages.append((clear_img, clear_coverage, intersection_pct, tif_datetime))
 
     # Use udms in most to least coverage order
     coverage_order = np.argsort([coverage for _, coverage, _, _ in coverages])[::-1].tolist()
@@ -167,7 +170,7 @@ def calculate_udm_coverages(
         udm_paths,
         coverage_count,
         grid_pixel_area,
-        skip_same_range=config.skip_same_range,
+        skip_same_range_days=config.skip_same_range_days,
         config=config,
     )
     included_item_idxes = {d["ordered_idx"] for d in item_coverage}
@@ -180,7 +183,7 @@ def calculate_udm_coverages(
             udm_paths,
             coverage_count,
             grid_pixel_area,
-            skip_same_range=0,
+            skip_same_range_days=0,
             config=config,
         )
     else:

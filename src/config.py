@@ -15,6 +15,27 @@ class AssetType(Enum):
     ortho_pansharpened = "ortho_pansharpened"
 
 
+class Instrument(Enum):
+    PS2 = "PS2"
+    PS2_SD = "PS2.SD"
+    PSB_SD = "PSB.SD"
+    SkySat = "SkySat"
+
+
+class PublishingStage(Enum):
+    Preview = "preview"
+    Standard = "standard"
+    Finalized = "finalized"
+
+
+class QualityCategory(Enum):
+    Test = "test"
+    Standard = "standard"
+
+
+CLOUD_BAND = 6
+
+
 @dataclass
 class DownloadConfig:
     # Path the directory of grid geojson files
@@ -43,13 +64,16 @@ class DownloadConfig:
     ground_control: bool = True
 
     # Quality level
-    quality_category: str = "standard"
+    quality_category: QualityCategory | None = QualityCategory.Standard
 
-    # Min allowed clear percent
+    # Min allowed clear percent (0 to 100)
     clear_percent: float = 0.0
 
     # Stage of imagegry data
-    publishing_stage: str = "finalized"
+    publishing_stage: PublishingStage | None = PublishingStage.Finalized
+
+    # Filter the instrument types
+    instrument: list[Instrument] | None = None
 
     # Max number of UDMs to consider (for a single month ~60 is normal per grid)
     udm_limit: int = 1000
@@ -63,8 +87,8 @@ class DownloadConfig:
     # Desired number of pixels per grid point across all images downloaded
     coverage_count: int = 5
 
-    # Minimum percent of area an image needs to contribute to coverage to be considered
-    percent_added: float = 0.05
+    # Minimum percent of area an image needs to contribute to coverage to be considered (0 - 100)
+    percent_added: float = 5.0
 
     # Number of times to retry downloading imagegry data
     download_retries_max: int = 3
@@ -73,7 +97,7 @@ class DownloadConfig:
     download_backoff: float = 1.0
 
     # Only include one image per n days. Defer to use_same_range_if_neccessary otherwise.
-    skip_same_range: int = 1
+    skip_same_range_days: float = 0.9
 
     # If there is less coverage than coverage_count use same date range items.
     use_same_range_if_neccessary: bool = True

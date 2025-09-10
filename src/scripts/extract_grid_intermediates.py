@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 from omegaconf import OmegaConf
 
-from src.config import DownloadConfig
+from src.config import CLOUD_BAND, DownloadConfig
 from src.grid import (
     create_polygon_aligned_profile_update,
     find_most_common_crs,
@@ -69,7 +69,7 @@ def reproject_and_crop_udms(
             profile_update=profile_update,
             repro_path=reprojected_path,
             out_path=cropped_path,
-            channels=1,
+            bands=[CLOUD_BAND],
         )
 
 
@@ -114,14 +114,14 @@ def reproject_and_crop_download_outputs(results_grid_dir: Path, grid_path: Path,
                 continue
 
             # Only crop the first channel for the UDM, otherwise all the channels
-            channels = 1 if name == "udm" else None
+            bands = [CLOUD_BAND] if name == "udm" else None
             reproject_and_crop_to_grid(
                 tif_path=tif_path,
                 grid_geom=grid_transformed,
                 profile_update=profile_update,
                 repro_path=reprojected_path,
                 out_path=cropped_path,
-                channels=channels,
+                bands=bands,
             )
 
 

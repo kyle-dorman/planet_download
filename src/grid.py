@@ -119,7 +119,7 @@ def reproject_and_crop_to_grid(
     profile_update: dict,
     repro_path: Path,
     out_path: Path | None,
-    channels: int | None,
+    bands: list[int] | None,
 ) -> np.ndarray:
     # open the geotiff file
     with rasterio.open(tif_path) as src:
@@ -127,15 +127,19 @@ def reproject_and_crop_to_grid(
         dst_profile = src.profile.copy()
         dst_profile.update(profile_update)
 
-        if channels is None:
+        if bands is None:
             channels = src.count
-        assert channels is not None
+            bands = list(range(1, src.count + 1))
+        else:
+            channels = len(bands)
+        assert channels is not None and channels > 0
+        assert bands is not None
 
         # Only reproject certain bands
         if channels != src.count:
             dst_profile.update(
                 {
-                    "count": channels,  # First band only,
+                    "count": channels,
                 }
             )
 
@@ -143,10 +147,10 @@ def reproject_and_crop_to_grid(
         reprojected_array = np.empty((channels, profile_update["height"], profile_update["width"]), dtype=src.dtypes[0])
 
         # Reproject bands
-        for band in range(1, channels + 1):
+        for idx, band in enumerate(bands):
             reproject(
                 source=rasterio.band(src, band),
-                destination=reprojected_array[band - 1],
+                destination=reprojected_array[idx],
                 src_transform=src.transform,
                 src_crs=src.crs,
                 dst_transform=profile_update["transform"],
@@ -178,6 +182,6 @@ def reproject_and_crop_to_grid(
 def grids_overlap(item: dict, grid_geom: Polygon, min_percent_added: float) -> bool:
     geom = item["geometry"]
     item_geom: Polygon = shape(geom)  # type: ignore
-    pct_intersection = calculate_intersection_pct(grid_geom, item_geom)
+    pct_intersection = 100 * calculate_intersection_pct(grid_geom, item_geom)
 
     return pct_intersection >= min_percent_added
