@@ -8,6 +8,8 @@ from typing import Any, Iterable, Type
 
 import geopandas as gpd
 import numpy as np
+import rasterio
+import rasterio.errors
 from matplotlib.dates import relativedelta
 from omegaconf import OmegaConf
 from tqdm.asyncio import tqdm_asyncio
@@ -46,7 +48,16 @@ def parse_acquisition_datetime(filepath: Path) -> datetime:
 
 
 def tif_paths(directory: Path) -> list[Path]:
-    return sorted([pth for pth in directory.iterdir() if pth.suffix == ".tif"])
+    all_paths = sorted([pth for pth in directory.iterdir() if pth.suffix == ".tif"])
+    paths = []
+    for pth in all_paths:
+        try:
+            with rasterio.open(pth):
+                paths.append(pth)
+        except rasterio.errors.RasterioIOError as e:
+            logger.exception(e)
+
+    return paths
 
 
 def geojson_paths(directory: Path, in_notebook: bool, check_crs: bool) -> list[Path]:
@@ -60,6 +71,7 @@ def geojson_paths(directory: Path, in_notebook: bool, check_crs: bool) -> list[P
     """
     logger.info("Finding grids")
     dir_search = ""
+
     current = next((p for p in directory.iterdir() if p.is_dir()), None)
     while current is not None:
         dir_search += "*/"

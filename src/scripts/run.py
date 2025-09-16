@@ -61,9 +61,12 @@ def main(config_file: Path, year: list[int], month: list[int]) -> None:
 
     # List of scripts to run
     scripts = [
-        "src/scripts/download_udms.py",
-        "src/scripts/select_udms.py",
-        "src/scripts/order_images.py",
+        "src/scripts/udm_search.py",
+        "src/scripts/udm_activate.py",
+        "src/scripts/udm_download.py",
+        "src/scripts/udm_select.py",
+        "src/scripts/order_create.py",
+        "src/scripts/order_download.py",
         "src/scripts/copy_to_process_dir.py",
     ]
 

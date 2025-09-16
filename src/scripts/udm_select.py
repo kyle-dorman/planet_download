@@ -192,14 +192,14 @@ def calculate_udm_coverages(
     return pd.DataFrame(item_coverage + skipped_item_coverage)
 
 
-def select_udms(
+def udm_select(
     config_file: Path,
     start_date: datetime,
     end_date: datetime,
 ) -> None:
     config, save_path = create_config(config_file, start_date=start_date, end_date=end_date)
 
-    setup_logger(save_path, log_filename="select_udms.log")
+    setup_logger(save_path, log_filename="udm_select.log")
 
     logger.info(
         f"Selecting best UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
@@ -209,14 +209,14 @@ def select_udms(
 
     tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
 
-    for grid_path in tqdm(geojson_paths(config.grid_dir, in_notebook=True, check_crs=False)):
+    for grid_path in tqdm(geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)):
         grid_id = grid_path.stem
         logger.debug(f"Selecting best UDMs for {grid_id}")
 
         results_grid_dir = save_path / grid_id
         grid_udm_dir = results_grid_dir / "udm"
         if not grid_udm_dir.exists():
-            logger.warning(f"No udms for {grid_id}")
+            logger.debug(f"No udms for {grid_id}")
             continue
 
         csv_path = results_grid_dir / "images_to_download.csv"
@@ -248,7 +248,7 @@ def main(
 ):
     config_file = Path(config_file)
 
-    select_udms(config_file=config_file, start_date=start_date, end_date=end_date)
+    udm_select(config_file=config_file, start_date=start_date, end_date=end_date)
 
     logger.info("Done!")
 

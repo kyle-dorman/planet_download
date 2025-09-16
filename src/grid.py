@@ -79,7 +79,7 @@ def find_most_common_crs(tif_paths: list[Path]) -> CRS:
 
     most_common_crs_str, count = counter.most_common(1)[0]
     most_common_crs = CRS.from_string(most_common_crs_str)
-    logger.info(f"{count}/{len(tif_paths)} EPSGs are {most_common_crs_str}")
+    logger.debug(f"{count}/{len(tif_paths)} EPSGs are {most_common_crs_str}")
 
     return most_common_crs
 
