@@ -96,6 +96,12 @@ class DownloadConfig:
     # Seconds to wait before retrying
     download_backoff: float = 1.0
 
+    # Number of times client will loop
+    client_max_attempts: int = 200
+
+    # Number of times client will loop
+    client_delay: int = 5
+
     # Only include one image per n days. Defer to use_same_range_if_neccessary otherwise.
     skip_same_range_days: float = 0.9
 

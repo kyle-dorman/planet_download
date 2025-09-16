@@ -81,7 +81,9 @@ async def download_udm(
     # Wait for Asset
     async def wait_asset():
         async with sem:
-            return await cl.wait_asset(asset=asset_desc)
+            return await cl.wait_asset(
+                asset=asset_desc, delay=config.client_delay, max_attempts=config.client_max_attempts
+            )
 
     try:
         asset = await retry_task(wait_asset, config.download_retries_max, config.download_backoff)

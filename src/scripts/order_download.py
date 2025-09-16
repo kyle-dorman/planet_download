@@ -148,7 +148,7 @@ async def download_single_order(
     # Wait for the order to be ready
     async def wait_order():
         async with sem:
-            await cl.wait(order_id)
+            await cl.wait(order_id, delay=config.client_delay, max_attempts=config.client_max_attempts)
 
     try:
         await retry_task(wait_order, config.download_retries_max, config.download_backoff)
