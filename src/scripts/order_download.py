@@ -27,22 +27,32 @@ from src.util import (
 logger = logging.getLogger(__name__)
 
 
-def files_downloaded(results_grid_dir: Path) -> bool:
-    # If there is no "files" directory then the data wasn't downloaded
-    order_files_dir = results_grid_dir / "files"
-    if not order_files_dir.exists():
-        return False
+def orders_to_download(results_grid_dir: Path) -> list[dict]:
+    orders = []
+    for order_idx, order in enumerate(get_order_jsons(results_grid_dir)):
+        # If there is no "files" directory then the data wasn't downloaded
+        order_files_dir = results_grid_dir / "files"
+        if not order_files_dir.exists():
+            orders.append(order)
+            continue
 
-    # If we did not recored the list of file names then the data wasn't extracted successfully.
-    download_file_list = results_grid_dir / "downloaded_files.txt"
-    if not download_file_list.exists():
-        return False
+        manifest_path = results_grid_dir / f"manifest_{order_idx}.json"
 
-    with open(download_file_list) as f:
-        file_names = [line.strip() for line in f]
+        # If we did not recored the list of file names then the data wasn't extracted successfully.
+        if not manifest_path.exists():
+            orders.append(order)
+            continue
 
-    # Verify the data was downloaded, extracted, and matches the list of files expected.
-    return set(file_names) == {p.name for p in order_files_dir.iterdir()}
+        with open(manifest_path) as f:
+            manifest = json.load(f).get("files", [])
+            file_names = {Path(m["path"]).name for m in manifest}
+
+        # Verify the data was downloaded, extracted, and matches the list of files expected.
+        downloaded_files = {p.name for p in order_files_dir.iterdir()}
+        missing_files = file_names - downloaded_files
+        if len(missing_files):
+            orders.append(order)
+    return orders
 
 
 def unzip_downloads(results_grid_dir: Path) -> None:
@@ -54,10 +64,6 @@ def unzip_downloads(results_grid_dir: Path) -> None:
     # Location of unziped files
     order_files_dir = results_grid_dir / "files"
 
-    # If we already unzipped the files, exit.
-    if order_files_dir.exists():
-        return
-
     # If no order_*.json exists then there won't be a zip file.
     order_paths = get_order_jsons(results_grid_dir)
     if not len(order_paths):
@@ -68,6 +74,7 @@ def unzip_downloads(results_grid_dir: Path) -> None:
     for order_path in order_paths:
         with open(order_path) as f:
             order_request = json.load(f)
+        order_idx = int(order_path.stem.split("_")[1])
 
         order_id = str(order_request["id"])
 
@@ -77,7 +84,9 @@ def unzip_downloads(results_grid_dir: Path) -> None:
             continue
 
         # There should just be one zip file in the download folder.
-        order_download_path = list(order_download_dir.glob("*.zip"))[0]
+        order_download_paths = list(order_download_dir.glob("*.zip"))
+        assert len(order_download_paths) == 0, order_download_paths
+        order_download_path = order_download_paths[0]
         try:
             # Open the zip file and extract its contents
             with zipfile.ZipFile(order_download_path) as zip_ref:
@@ -86,15 +95,15 @@ def unzip_downloads(results_grid_dir: Path) -> None:
             logger.error(f"Path: {order_download_path}")
             raise e
 
-        assert order_files_dir.exists()
+        assert order_files_dir.exists(), order_files_dir
+
+        # Move the manifest to be a per order_idx manifest
+        manifest_path = results_grid_dir / "manifest.json"
+        assert manifest_path.exists(), manifest_path
+        shutil.move(manifest_path, results_grid_dir / f"manifest_{order_idx}.json")
 
     if not order_files_dir.exists():
         return
-
-    # Save list of files as a csv
-    all_file_names = [p.name for p in order_files_dir.iterdir()]
-    with open(results_grid_dir / "downloaded_files.txt", "w") as f:
-        f.write("\n".join(all_file_names))
 
 
 def cleanup(results_grid_dir: Path) -> None:
@@ -236,20 +245,11 @@ async def main_loop(
         all_orders = []
         for grid_path in grid_paths:
             grid_id = grid_path.stem
-            grid_dir = save_path / grid_id
+            grid_save_dir = save_path / grid_id
 
-            if files_downloaded(grid_dir):
-                continue
-
-            order_paths = get_order_jsons(grid_dir)
-            if not any(order_paths):
-                logger.debug(f"Missing order for {grid_id}")
-                continue
-
-            for order_path in order_paths:
-                with open(order_path) as f:
-                    order = json.load(f)
-                    all_orders.append((order, grid_dir))
+            orders = orders_to_download(grid_save_dir)
+            for order in orders:
+                all_orders.append((order, grid_save_dir))
 
         # Download all orders
         await download_orders(sess, all_orders, config, in_notebook)
@@ -259,14 +259,14 @@ async def main_loop(
     # Unzip the downloads and the remove the zip file for each grid.
     tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
     for grid_path in tqdm(grid_paths, dynamic_ncols=True):
-        results_grid_dir = save_path / grid_path.stem
-        if not results_grid_dir.exists():
+        grid_save_dir = save_path / grid_path.stem
+        if not grid_save_dir.exists():
             logger.warning(f"No results directory for {grid_path.stem}")
             continue
-        unzip_downloads(results_grid_dir)
+        unzip_downloads(grid_save_dir)
 
         if config.cleanup:
-            cleanup(results_grid_dir)
+            cleanup(grid_save_dir)
 
 
 def order_download(

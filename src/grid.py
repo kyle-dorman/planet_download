@@ -23,7 +23,7 @@ def calculate_mask_coverage(image: np.ndarray, grid_geom: Polygon, ground_sample
     grid_area = grid_geom.area
 
     # calculate the total number of valid pixels and total valid area
-    total_1s = (image[0] == 1).sum()
+    total_1s = (image == 1).sum()
     total_valid_area = total_1s * ground_sample_area
 
     # Calculate the valid area coverage percent

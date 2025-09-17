@@ -37,7 +37,7 @@ def batched(iterable, size):
 
 def get_order_jsons(grid_dir: Path) -> list[Path]:
     # Get order json files. Looks for legacy order.json as well as batched order_*.json
-    return list(grid_dir.glob("order_*.json")) + list(grid_dir.glob("order.json"))
+    return sorted(list(grid_dir.glob("order_*.json")) + list(grid_dir.glob("order.json")))
 
 
 # Buid the order request including how to clip the image and how to deliver it.
@@ -105,13 +105,13 @@ def create_order_requests(
 
         assert grid_path.suffix == ".geojson", f"Invalid path, {grid_path.name}"
 
-        grid_dir = save_dir / grid_id
+        grid_save_dir = save_dir / grid_id
 
         # If the order_*.json file exists, then we have already scheduled this order.
-        if any(get_order_jsons(grid_dir)):
+        if any(get_order_jsons(grid_save_dir)):
             continue
 
-        item_ids_path = grid_dir / "images_to_download.csv"
+        item_ids_path = grid_save_dir / "images_to_download.csv"
         if not item_ids_path.exists():
             logger.debug(f"Missing item download list for {grid_id}")
             continue
@@ -141,6 +141,8 @@ def create_order_requests(
                 end_date,
                 config,
             )
+            with open(grid_save_dir / f"order_request_{idx}.json", "w") as f:
+                json.dump(order_request, f)
 
             order_requests.append((order_request, idx, grid_path.stem))
 
@@ -159,17 +161,17 @@ async def create_orders(
 ):
     # Create the order requests objects
     logger.info("Creating order requests")
-    order_requests_to_create = create_order_requests(grid_paths, save_dir, start_date, end_date, config, in_notebook)
+    order_requests = create_order_requests(grid_paths, save_dir, start_date, end_date, config, in_notebook)
 
-    logger.info(f"Starting {len(order_requests_to_create)} order requests")
+    logger.info(f"Starting {len(order_requests)} order requests")
 
     # download items with limited concurrency and one progress bar
     sem = asyncio.Semaphore(config.max_concurrent_tasks)
 
     try:
         order_tasks = [
-            asyncio.create_task(create_region_order(sess, request, config, sem))
-            for request, _, _ in order_requests_to_create
+            asyncio.create_task(create_region_order(sess, order_request, config, sem))
+            for order_request, _, _ in order_requests
         ]
         orders = await asyncio.gather(*order_tasks)
     except Exception as e:
@@ -180,7 +182,7 @@ async def create_orders(
     logger.info("Saving orders")
 
     # Save the order results to a json file per grid
-    for order, (_, idx, grid_name) in zip(orders, order_requests_to_create):
+    for order, (_, idx, grid_name) in zip(orders, order_requests):
         with open(save_dir / grid_name / f"order_{idx}.json", "w") as f:
             json.dump(order, f)
 

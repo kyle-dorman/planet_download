@@ -8,9 +8,10 @@ import click
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from rasterio.errors import WarpOperationError
 from shapely import Polygon
 
-from src.config import CLOUD_BAND, DownloadConfig
+from src.config import CLOUD_BAND, CONFIDENCE_BAND, DownloadConfig
 from src.grid import (
     calculate_intersection_pct,
     calculate_mask_coverage,
@@ -57,7 +58,7 @@ def update_coverage(
     for idx in coverage_order:
         # Find areas where we there are valid pixels
         clipped_image, clear_coverage, intersection_pct, tif_datetime = coverages[idx]
-        valid_pixels = clipped_image[0] == 1
+        valid_pixels = clipped_image == 1
 
         # Areas that still need pixels
         to_add = coverage_count < config.coverage_count
@@ -67,6 +68,7 @@ def update_coverage(
 
         # Determine how much of the image counts would be imporoved by this image
         pct_adding = 100 * should_update.sum() / grid_pixel_area
+
         skip_for_date = skip_same_range_days > 0 and is_within_n_hours(
             tif_datetime, dates_added, n_hours=int(skip_same_range_days * 24)
         )
@@ -136,15 +138,22 @@ def calculate_udm_coverages(
             tif_datetime = parse_acquisition_datetime(udm_path)
 
             # Get the UDM in the consistent grid. Do not retain the intermediates.
-            cloud_img = reproject_and_crop_to_grid(
-                tif_path=udm_path,
-                grid_geom=grid,
-                profile_update=profile_update,
-                repro_path=temp_path,
-                out_path=None,
-                bands=[CLOUD_BAND],
-            )
-            clear_img = (cloud_img != 1).astype(np.uint8)
+            try:
+                repro_img = reproject_and_crop_to_grid(
+                    tif_path=udm_path,
+                    grid_geom=grid,
+                    profile_update=profile_update,
+                    repro_path=temp_path,
+                    out_path=None,
+                    bands=[CLOUD_BAND, CONFIDENCE_BAND],
+                )
+            except WarpOperationError as e:
+                logger.exception(e)
+                continue
+
+            nodata = repro_img[1] == 0
+            cloud_img = repro_img[0]
+            clear_img = np.logical_and((cloud_img != 1), ~nodata).astype(np.uint8)
             clear_coverage = calculate_mask_coverage(
                 clear_img,
                 grid,
