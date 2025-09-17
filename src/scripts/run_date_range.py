@@ -73,6 +73,7 @@ def main(
         "src/scripts/udm_activate.py",
         "src/scripts/udm_download.py",
         "src/scripts/udm_select.py",
+        "src/scripts/udm_cleanup.py",
         "src/scripts/order_create.py",
         "src/scripts/order_download.py",
     ]
