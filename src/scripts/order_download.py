@@ -27,21 +27,23 @@ from src.util import (
 logger = logging.getLogger(__name__)
 
 
-def orders_to_download(results_grid_dir: Path) -> list[tuple[int, dict]]:
+def orders_to_download(results_grid_dir: Path) -> list[tuple[int, Path]]:
     order_paths = []
     for order_path in get_order_jsons(results_grid_dir):
         order_idx = int(order_path.stem.split("_")[1])
+        data = (order_idx, order_path)
+
         manifest_path = results_grid_dir / f"manifest_{order_idx}.json"
 
         # If there is no "files" directory then the data wasn't downloaded
         order_files_dir = results_grid_dir / "files"
         if not order_files_dir.exists():
-            order_paths.append((order_idx, order_path))
+            order_paths.append(data)
             continue
 
         # If we did not recored the list of file names then the data wasn't extracted successfully.
         if not manifest_path.exists():
-            order_paths.append((order_idx, order_path))
+            order_paths.append(data)
             continue
 
         with open(manifest_path) as f:
@@ -52,7 +54,7 @@ def orders_to_download(results_grid_dir: Path) -> list[tuple[int, dict]]:
         downloaded_files = {p.name for p in order_files_dir.iterdir()}
         missing_files = file_names - downloaded_files
         if len(missing_files):
-            order_paths.append((order_idx, order_path))
+            order_paths.append(data)
     return order_paths
 
 
@@ -77,7 +79,7 @@ def unzip_download(order_idx: int, order_request: dict, results_grid_dir: Path) 
 
     # There should just be one zip file in the download folder.
     order_download_paths = list(order_download_dir.glob("*.zip"))
-    assert len(order_download_paths) == 0, order_download_paths
+    assert len(order_download_paths) == 1, order_download_paths
     order_download_path = order_download_paths[0]
     try:
         # Open the zip file and extract its contents
@@ -230,7 +232,9 @@ async def main_loop(
         grid_save_dir = save_path / grid_id
 
         orders = orders_to_download(grid_save_dir)
-        for order_idx, order in orders:
+        for order_idx, order_path in orders:
+            with open(order_path) as f:
+                order = json.load(f)
             all_orders.append((order_idx, order, grid_save_dir))
 
     # Download all orders

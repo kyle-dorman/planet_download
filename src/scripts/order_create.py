@@ -37,7 +37,8 @@ def batched(iterable, size):
 
 def get_order_jsons(grid_dir: Path) -> list[Path]:
     # Get order json files. Looks for legacy order.json as well as batched order_*.json
-    return sorted(list(grid_dir.glob("order_*.json")) + list(grid_dir.glob("order.json")))
+    paths = sorted(list(grid_dir.glob("order_*.json")) + list(grid_dir.glob("order.json")))
+    return [p for p in paths if "request" not in p.name]
 
 
 # Buid the order request including how to clip the image and how to deliver it.
@@ -70,21 +71,25 @@ def build_region_order_request(
 
 
 # Create an order for image data
-async def create_region_order(sess: Session, request: dict, config: DownloadConfig, sem: asyncio.Semaphore) -> dict:
-    logger.debug(f"Creating order {request['name']}")
+async def create_region_order(
+    sess: Session, order_request: dict, order_idx: int, save_path: Path, config: DownloadConfig, sem: asyncio.Semaphore
+) -> None:
+    logger.debug(f"Creating order {order_request['name']}")
     cl = OrdersClient(sess)
 
     # Schedule the orders
     # Wait for the order to be ready
     async def create_order_retry():
         async with sem:
-            return await cl.create_order(request)
+            return await cl.create_order(order_request)
 
     order = await retry_task(create_order_retry, config.download_retries_max, config.download_backoff)
 
-    logger.debug(f"Finished creating order {request['name']}")
+    # Save order
+    with open(save_path / f"order_{order_idx}.json", "w") as f:
+        json.dump(order, f)
 
-    return order
+    logger.debug(f"Finished creating order {order_request['name']}")
 
 
 # Create list of orders to create across all grid paths.
@@ -144,7 +149,7 @@ def create_order_requests(
             with open(grid_save_dir / f"order_request_{idx}.json", "w") as f:
                 json.dump(order_request, f)
 
-            order_requests.append((order_request, idx, grid_path.stem))
+            order_requests.append((order_request, idx, grid_save_dir))
 
     return order_requests
 
@@ -170,21 +175,14 @@ async def create_orders(
 
     try:
         order_tasks = [
-            asyncio.create_task(create_region_order(sess, order_request, config, sem))
-            for order_request, _, _ in order_requests
+            asyncio.create_task(create_region_order(sess, order_request, order_idx, results_grid_dir, config, sem))
+            for order_request, order_idx, results_grid_dir in order_requests
         ]
-        orders = await asyncio.gather(*order_tasks)
+        await asyncio.gather(*order_tasks)
     except Exception as e:
         logger.error(f"Error creating order for {start_date} {end_date}")
         logger.exception(e)
         raise e
-
-    logger.info("Saving orders")
-
-    # Save the order results to a json file per grid
-    for order, (_, idx, grid_name) in zip(orders, order_requests):
-        with open(save_dir / grid_name / f"order_{idx}.json", "w") as f:
-            json.dump(order, f)
 
 
 # Main loop. Create order requests and download the orders when ready.
