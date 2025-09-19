@@ -11,7 +11,7 @@ import pandas as pd
 from rasterio.errors import WarpOperationError
 from shapely import Polygon
 
-from src.config import CLOUD_BAND, CONFIDENCE_BAND, DownloadConfig
+from src.config import CLEAR_BAND, DownloadConfig
 from src.grid import (
     calculate_intersection_pct,
     calculate_mask_coverage,
@@ -139,21 +139,18 @@ def calculate_udm_coverages(
 
             # Get the UDM in the consistent grid. Do not retain the intermediates.
             try:
-                repro_img = reproject_and_crop_to_grid(
+                clear_img = reproject_and_crop_to_grid(
                     tif_path=udm_path,
                     grid_geom=grid,
                     profile_update=profile_update,
                     repro_path=temp_path,
                     out_path=None,
-                    bands=[CLOUD_BAND, CONFIDENCE_BAND],
-                )
+                    bands=[CLEAR_BAND],
+                )[0]
             except WarpOperationError as e:
                 logger.exception(e)
                 continue
 
-            nodata = repro_img[1] == 0
-            cloud_img = repro_img[0]
-            clear_img = np.logical_and((cloud_img != 1), ~nodata).astype(np.uint8)
             clear_coverage = calculate_mask_coverage(
                 clear_img,
                 grid,
