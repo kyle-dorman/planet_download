@@ -34,6 +34,7 @@ class QualityCategory(Enum):
 
 
 CLEAR_BAND = 1
+CONFIDENCE_BAND = 6
 
 
 @dataclass
