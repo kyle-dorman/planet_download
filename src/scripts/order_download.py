@@ -144,6 +144,7 @@ async def download_single_order(
     async def download_order():
         async with sem:
             await cl.download_order(order_id, directory=save_dir, overwrite=False, progress_bar=False)
+
             for pth in save_dir.glob("*.zip"):
                 if not zipfile.is_zipfile(pth):
                     os.remove(pth)

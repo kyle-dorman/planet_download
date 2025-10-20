@@ -34,7 +34,7 @@ class QualityCategory(Enum):
 
 
 CLEAR_BAND = 1
-CONFIDENCE_BAND = 6
+CONFIDENCE_BAND = 7
 
 
 @dataclass
@@ -108,6 +108,9 @@ class DownloadConfig:
 
     # If there is less coverage than coverage_count use same date range items.
     use_same_range_if_neccessary: bool = True
+
+    # Name of UDM selection file (useful if you want to run multiple times)
+    udm_select_file_name: str = "images_to_download.csv"
 
 
 def validate_config(config: DownloadConfig):

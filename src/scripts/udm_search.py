@@ -177,7 +177,7 @@ async def run_search(
     """Handles one grid: searches, filters, and returns search result tuples."""
     grid_id = grid_path.stem
     grid_save_path = save_path / grid_id
-    if grid_save_path.exists() and (grid_save_path / "images_to_download.csv").exists():
+    if grid_save_path.exists() and (grid_save_path / config.udm_select_file_name).exists():
         logger.debug(f"Already filtered grid {grid_id}")
         return
 

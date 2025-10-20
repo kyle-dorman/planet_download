@@ -89,7 +89,10 @@ def geojson_paths(directory: Path, in_notebook: bool, check_crs: bool) -> list[P
 # strip the _3B_udm2 from the file name
 # e.g. 20230901_182511_53_2486_3B_udm2.tif
 def cleaned_asset_id(filepath: Path) -> str:
-    if "3B_udm2" in filepath.stem:
+    if "3B_udm2_clip" in filepath.stem:
+        # 20200223_163753_1_0f49_3B_udm2_clip.tif
+        return "_".join(filepath.stem.split("_")[:-3])
+    elif "3B_udm2" in filepath.stem:
         # 20200223_163753_1_0f49_3B_udm2.tif
         return "_".join(filepath.stem.split("_")[:-2])
     elif "pansharpened_udm2" in filepath.stem:

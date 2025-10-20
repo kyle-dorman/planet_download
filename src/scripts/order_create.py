@@ -116,7 +116,7 @@ def create_order_requests(
         if any(get_order_jsons(grid_save_dir)):
             continue
 
-        item_ids_path = grid_save_dir / "images_to_download.csv"
+        item_ids_path = grid_save_dir / config.udm_select_file_name
         if not item_ids_path.exists():
             logger.debug(f"Missing item download list for {grid_id}")
             continue

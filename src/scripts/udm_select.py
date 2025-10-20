@@ -83,9 +83,9 @@ def update_coverage(
                 {
                     "ordered_idx": idx,
                     "asset_id": cleaned_asset_id(udm_paths[int(idx)]),
-                    "clear_coverge_pct": clear_coverage,
-                    "intersection_pct": intersection_pct,
-                    "pct_adding": pct_adding,
+                    "clear_coverge_pct": round(clear_coverage, 4),
+                    "intersection_pct": round(intersection_pct, 4),
+                    "pct_adding": round(pct_adding, 4),
                     "capture_datetime": tif_datetime,
                     "include_image": include_image,
                 }
@@ -122,11 +122,12 @@ def calculate_udm_coverages(
     grid = open_and_convert_grid(grid_path, crs)
 
     with open(results_grid_dir / "filtered_search_results.json") as f:
-        data = json.load(f)
-        ground_sample_distance = data[0]["properties"]["pixel_resolution"]
+        grid_search_data = json.load(f)
+        ground_sample_distance = grid_search_data[0]["properties"]["pixel_resolution"]
 
     # Create the new consistent grid which all UDMs wil be cropped to
     profile_update = create_polygon_aligned_profile_update(grid, crs, ground_sample_distance)
+    target_shape = (profile_update["height"], profile_update["width"])
 
     # Crop the UDMs
     logger.debug("Cropping UDMs & calculating coverage")
@@ -134,10 +135,26 @@ def calculate_udm_coverages(
     # Remove reprojected and cropped intermediates at the end
     with tempfile.TemporaryDirectory() as tempdir:
         for udm_path in udm_paths:
-            temp_path = Path(tempdir) / udm_path.name
+            asset_id = cleaned_asset_id(udm_path)
             tif_datetime = parse_acquisition_datetime(udm_path)
 
+            udm_data = next(d for d in grid_search_data if d.get("id", "") == asset_id)
+            clear_percent = udm_data.get("properties", {}).get("clear_percent")
+
+            item_geom: Polygon = udm_gdf[udm_gdf.id == asset_id].geometry.iloc[0]  # type: ignore
+            intersection_pct = calculate_intersection_pct(grid, item_geom)
+
+            # We COULD do this during udm query time but this allows changing the filtering level
+            # after downloading based on number of results.
+            if config.clear_percent and clear_percent < config.clear_percent:
+                logger.debug(
+                    f"Skipping {asset_id} b/c clear_percent is too low {clear_percent} < {config.clear_percent}"
+                )
+                coverages.append((np.zeros(target_shape, dtype=np.uint8), 0.0, intersection_pct, tif_datetime))
+                continue
+
             # Get the UDM in the consistent grid. Do not retain the intermediates.
+            temp_path = Path(tempdir) / udm_path.name
             try:
                 result = reproject_and_crop_to_grid(
                     tif_path=udm_path,
@@ -152,15 +169,13 @@ def calculate_udm_coverages(
                 continue
 
             clear_img = result[0]
-            nodata = result[1] < 1.0
+            nodata = result[-1] < 1.0
             clear_img[nodata] = 0
             clear_coverage = calculate_mask_coverage(
                 clear_img,
                 grid,
                 ground_sample_distance,
             )
-            item_geom: Polygon = udm_gdf[udm_gdf.id == cleaned_asset_id(udm_path)].geometry.iloc[0]  # type: ignore
-            intersection_pct = calculate_intersection_pct(grid, item_geom)
             coverages.append((clear_img, clear_coverage, intersection_pct, tif_datetime))
 
     # Use udms in most to least coverage order
@@ -228,7 +243,7 @@ def udm_select(
             logger.debug(f"No udms for {grid_id}")
             continue
 
-        csv_path = results_grid_dir / "images_to_download.csv"
+        csv_path = results_grid_dir / config.udm_select_file_name
         if csv_path.exists():
             logger.debug(f"Download list exists for {grid_id}. Skipping...")
             continue
