@@ -11,7 +11,7 @@ import pandas as pd
 from rasterio.errors import WarpOperationError
 from shapely import Polygon
 
-from src.config import CLEAR_BAND, CONFIDENCE_BAND, DownloadConfig
+from src.config import CLOUD_BAND, CONFIDENCE_BAND, HEAVY_HAZE_BAND, LIGHT_HAZE_BAND, SHADOW_BAND, DownloadConfig
 from src.grid import (
     calculate_intersection_pct,
     calculate_mask_coverage,
@@ -162,13 +162,13 @@ def calculate_udm_coverages(
                     profile_update=profile_update,
                     repro_path=temp_path,
                     out_path=None,
-                    bands=[CLEAR_BAND, CONFIDENCE_BAND],
+                    bands=[SHADOW_BAND, LIGHT_HAZE_BAND, HEAVY_HAZE_BAND, CLOUD_BAND, CONFIDENCE_BAND],
                 )
             except WarpOperationError as e:
                 logger.exception(e)
                 continue
 
-            clear_img = result[0]
+            clear_img = result[:-1].sum(axis=0) == 0
             nodata = result[-1] < 1.0
             clear_img[nodata] = 0
             clear_coverage = calculate_mask_coverage(
