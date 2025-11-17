@@ -136,7 +136,3 @@ conda activate planet_download
 conda env update --file environment.yml --prune
 conda activate planet_download
 ```
-
-## TODOs
-- Am I handling grids with overlapping zones correctly?
-- Discuss cloud filtering logic changes w/Kate

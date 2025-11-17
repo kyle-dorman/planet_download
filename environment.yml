@@ -36,6 +36,7 @@ dependencies:
   - notebook
   - ipywidgets
   - widgetsnbextension
+  - jupyter_contrib_nbextensions
   # Linting
   - black
   - isort
