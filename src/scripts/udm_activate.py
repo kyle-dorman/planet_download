@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
+from uuid import uuid4
 
 import click
 from dotenv import find_dotenv, load_dotenv
@@ -16,12 +17,14 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
+    log_structured_failure,
     retry_task,
     run_async_function,
     setup_logger,
 )
 
 logger = logging.getLogger(__name__)
+CATEGORY = Path(__file__).stem
 
 
 # Asynchronously activated a single udm asset for the given item.
@@ -80,7 +83,14 @@ async def activate_region_udm(
 
 # Asynchronously activated all udm assets for the given list of items.
 async def activate_all_udms(
-    item_lists: list[tuple[dict, Path]], sess: Session, config: DownloadConfig, in_notebook: bool
+    item_lists: list[tuple[dict, Path]],
+    sess: Session,
+    config: DownloadConfig,
+    in_notebook: bool,
+    save_path: Path,
+    run_id: str,
+    start_date: datetime,
+    end_date: datetime,
 ) -> None:
     logger.info(f"Activating {len(item_lists)} udm items")
 
@@ -120,6 +130,19 @@ async def activate_all_udms(
         logger.error("\n❌ Failed Tasks Summary:")
         for grid_id, asset_id, step, error in failures:
             logger.error(f" - Grid {grid_id} Asset {asset_id}: Failed at {step} with error: {error}")
+            log_structured_failure(
+                save_path=save_path,
+                run_id=run_id,
+                category=CATEGORY,
+                payload={
+                    "grid_id": grid_id,
+                    "asset_id": asset_id,
+                    "step": step,
+                    "error": error,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                },
+            )
     else:
         logger.info("All assets processed successfully!")
 
@@ -155,12 +178,28 @@ def get_search_results(config: DownloadConfig, save_path: Path, in_notebook: boo
 
 
 # Main loop. Download all overlapping UDMs for a given date and directory of grids.
-async def main_loop(config: DownloadConfig, save_path: Path, in_notebook: bool) -> None:
+async def main_loop(
+    config: DownloadConfig,
+    save_path: Path,
+    in_notebook: bool,
+    run_id: str,
+    start_date: datetime,
+    end_date: datetime,
+) -> None:
     to_activate = get_search_results(config, save_path, in_notebook)
 
     async with Session() as sess:
         # loop through and activate all the UDM2 files for the given date and grid
-        await activate_all_udms(to_activate, sess, config, in_notebook)
+        await activate_all_udms(
+            to_activate,
+            sess,
+            config,
+            in_notebook,
+            save_path=save_path,
+            run_id=run_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
 
 def udm_activate(
@@ -172,13 +211,14 @@ def udm_activate(
 
     setup_logger(save_path, log_filename="udm_activate.log")
 
+    run_id = uuid4().hex
     logger.info(
-        f"Activating UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
+        f"Run id={run_id} Activating UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
     )
 
     in_notebook = is_notebook()
 
-    return run_async_function(main_loop(config, save_path, in_notebook))
+    return run_async_function(main_loop(config, save_path, in_notebook, run_id, start_date, end_date))
 
 
 @click.command()

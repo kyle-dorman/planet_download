@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import multiprocessing as mp
 import re
@@ -307,3 +308,22 @@ def broad_band(all_bands: np.ndarray, no_data: np.ndarray) -> np.ndarray:
     rgb_log[no_data] = 0.0
 
     return rgb_log
+
+
+def log_structured_failure(save_path: Path, run_id: str, category: str, payload: dict) -> None:
+    """Append a structured failure record to a JSONL file under save_path.
+
+    This is intended to be reusable across scripts. Each line is a single JSON
+    object so the file is easy to parse programmatically.
+    """
+    record = {
+        "run_id": run_id,
+        "category": category,
+        "timestamp": datetime.now().isoformat() + "Z",
+        **payload,
+    }
+
+    failure_log_path = save_path / "failures.jsonl"
+    failure_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with failure_log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")

@@ -6,6 +6,7 @@ import shutil
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 import click
 from dotenv import find_dotenv, load_dotenv
@@ -19,12 +20,14 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
+    log_structured_failure,
     retry_task,
     run_async_function,
     setup_logger,
 )
 
 logger = logging.getLogger(__name__)
+CATEGORY = Path(__file__).stem
 
 
 def orders_to_download(results_grid_dir: Path) -> list[tuple[int, Path]]:
@@ -172,7 +175,14 @@ async def download_single_order(
 
 # Download an order and retry failed downloads a fixed number of times.
 async def download_orders(
-    sess: Session, orders: list[tuple[int, dict, Path]], config: DownloadConfig, in_notebook: bool
+    sess: Session,
+    orders: list[tuple[int, dict, Path]],
+    config: DownloadConfig,
+    in_notebook: bool,
+    save_path: Path,
+    run_id: str,
+    start_date: datetime,
+    end_date: datetime,
 ) -> None:
     # Skip orders that were previously downloaded
     total_assets = len(orders)
@@ -216,13 +226,30 @@ async def download_orders(
         logger.error("\n❌ Failed Tasks Summary:")
         for grid_id, step, error in failures:
             logger.error(f" - Grid {grid_id}: Failed at {step} with error: {error}")
+            log_structured_failure(
+                save_path=save_path,
+                run_id=run_id,
+                category=CATEGORY,
+                payload={
+                    "grid_id": grid_id,
+                    "step": step,
+                    "error": error,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                },
+            )
     else:
         logger.info("All downloads processed successfully!")
 
 
 # Main loop. Create order requests and download the orders when ready.
 async def main_loop(
-    config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime, in_notebook: bool
+    config: DownloadConfig,
+    save_path: Path,
+    start_date: datetime,
+    end_date: datetime,
+    in_notebook: bool,
+    run_id: str,
 ) -> None:
     grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
 
@@ -240,7 +267,7 @@ async def main_loop(
 
     # Download all orders
     async with Session() as sess:
-        await download_orders(sess, all_orders, config, in_notebook)
+        await download_orders(sess, all_orders, config, in_notebook, save_path, run_id, start_date, end_date)
 
 
 def order_download(
@@ -252,13 +279,15 @@ def order_download(
 
     setup_logger(save_path, log_filename="order_download.log")
 
+    run_id = uuid4().hex
     logger.info(
-        f"Ordering images for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
+        f"Run id={run_id} Ordering images for start_date={start_date} end_date={end_date} "
+        f"grids={config.grid_dir} to={save_path}"
     )
 
     in_notebook = is_notebook()
 
-    return run_async_function(main_loop(config, save_path, start_date, end_date, in_notebook))
+    return run_async_function(main_loop(config, save_path, start_date, end_date, in_notebook, run_id))
 
 
 @click.command()
