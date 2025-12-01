@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from planet import specs
+
 
 class ItemType(Enum):
     PSScene = "PSScene"
@@ -51,10 +53,10 @@ class DownloadConfig:
 
     save_dir: Path = Path("/updateme")
 
-    # Path to copy the final surface reflectance and UDM data to.
+    # Path to copy the final surface reflectance and UDM data to. Not required.
     processing_dir: Path | None = None
 
-    # Cleanup zip directory and full size UDMs
+    # Cleanup zip directory and full size UDMs. Saves space but less reproducable.
     cleanup: bool = True
 
     # The type of scene
@@ -64,7 +66,7 @@ class DownloadConfig:
     asset_type: AssetType = AssetType.ortho_sr
 
     # Number of bands to use
-    num_bands: int = 8
+    num_bands: int = 4
 
     # Require ground control points
     ground_control: bool = True
@@ -78,7 +80,7 @@ class DownloadConfig:
     # Stage of imagegry data
     publishing_stage: PublishingStage | None = PublishingStage.Finalized
 
-    # Filter the instrument types
+    # Filter the instrument types. e.g. just SuperDove.
     instrument: list[Instrument] | None = None
 
     # Max number of UDMs to consider (for a single month ~60 is normal per grid)
@@ -87,7 +89,7 @@ class DownloadConfig:
     # Max tasks in flight at a time
     max_concurrent_tasks: int = 1000
 
-    # Max number of items in an order (will break a single order into multiple)
+    # Max number of items in an order (will break a single order into multiple).
     order_item_limit: int = 500
 
     # Desired number of pixels per grid point across all images downloaded
@@ -102,10 +104,10 @@ class DownloadConfig:
     # Seconds to wait before retrying
     download_backoff: float = 1.0
 
-    # Number of times client will loop
+    # Number of times client will poll for results.
     client_max_attempts: int = 200
 
-    # Number of times client will loop
+    # Time (seconds) between each polling attempt.
     client_delay: int = 5
 
     # Only include one image per n days. Defer to use_same_range_if_neccessary otherwise.
@@ -134,7 +136,12 @@ def validate_config(config: DownloadConfig):
     _ = planet_asset_string(config)
 
     # Verify we can create a valid product bundle
-    _ = product_bundle_string(config)
+    product_bundle = product_bundle_string(config)
+
+    # Run Planet validation as well
+    _ = specs.validate_data_item_type(config.item_type.value)
+    item_type = specs.validate_item_type(config.item_type.value)
+    _ = specs.validate_bundle(item_type, product_bundle)
 
 
 def udm_asset_string(config: DownloadConfig) -> str:
