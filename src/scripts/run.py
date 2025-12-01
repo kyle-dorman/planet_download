@@ -12,15 +12,17 @@ from src.util import check_and_create_env
 
 # Helper function to run each script
 def run_script(script_path: str, start_date: datetime, end_date: datetime, config_file: Path) -> None:
+    start_date_str = start_date.strftime("%Y-%m-%d")
+    end_date_str = end_date.strftime("%Y-%m-%d")
     try:
         subprocess.run(
             [
                 "python",
                 script_path,
                 "--start-date",
-                start_date.strftime("%Y-%m-%d"),
+                start_date_str,
                 "--end-date",
-                end_date.strftime("%Y-%m-%d"),
+                end_date_str,
                 "--config-file",
                 str(config_file),
             ],
@@ -28,7 +30,8 @@ def run_script(script_path: str, start_date: datetime, end_date: datetime, confi
         )
     except subprocess.CalledProcessError:
         click.secho(
-            f"❌ Error: Failed to run {script_path} for start-date: {start_date}, end-date: {end_date}", fg="red"
+            f"❌ Error: Failed to run {script_path} for start-date: {start_date_str}, end-date: {end_date_str}",
+            fg="red",
         )
         sys.exit(1)
 
@@ -72,9 +75,9 @@ def main(config_file: Path, year: list[int], month: list[int]) -> None:
     ]
 
     # Loop through scripts, years, and months
-    for script in scripts:
-        for y in year:
-            for m in month:
+    for y in year:
+        for m in month:
+            for script in scripts:
                 start_date = datetime(y, m, 1)
                 end_date = start_date + relativedelta(months=1)
 

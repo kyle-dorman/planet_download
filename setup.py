@@ -8,10 +8,3 @@ setup(
     author="kyle",
     license="LICENSE.txt",
 )
-
-# # Pinned bc of a jupyter notebook issue
-# # https://github.com/microsoft/azuredatastudio/issues/24436
-# traitlets==5.9.0
-# # Install directly b/c latest version doesn't build on Mac
-# triangle @ git+https://github.com/drufat/triangle.git
-# gdal[numpy] == 3.10.0.*
