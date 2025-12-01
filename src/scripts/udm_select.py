@@ -3,6 +3,7 @@ import logging
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 import click
 import geopandas as gpd
@@ -27,6 +28,7 @@ from src.util import (
     get_tqdm,
     is_notebook,
     is_within_n_hours,
+    log_structured_failure,
     parse_acquisition_datetime,
     setup_logger,
     tif_paths,
@@ -41,6 +43,7 @@ warnings.filterwarnings(
 )
 
 logger = logging.getLogger(__name__)
+CATEGORY = Path(__file__).stem
 
 
 def update_coverage(
@@ -104,7 +107,10 @@ def calculate_udm_coverages(
     results_grid_dir: Path,
     grid_path: Path,
     config: DownloadConfig,
+    start_date: datetime,
+    end_date: datetime,
 ) -> pd.DataFrame | None:
+    grid_id = grid_path.stem
     udm_paths = tif_paths(results_grid_dir / "udm")
 
     if not len(udm_paths):
@@ -166,6 +172,18 @@ def calculate_udm_coverages(
                 )
             except WarpOperationError as e:
                 logger.exception(e)
+                log_structured_failure(
+                    save_path=results_grid_dir,
+                    run_id=cleaned_asset_id(udm_path),
+                    category=CATEGORY,
+                    payload={
+                        "grid_id": grid_id,
+                        "step": "reproject_and_crop_to_grid",
+                        "error": str(e),
+                        "start_date": start_date.isoformat(),
+                        "end_date": end_date.isoformat(),
+                    },
+                )
                 continue
 
             clear_img = result[:-1].sum(axis=0) == 0
@@ -225,8 +243,9 @@ def udm_select(
 
     setup_logger(save_path, log_filename="udm_select.log")
 
+    run_id = uuid4().hex
     logger.info(
-        f"Selecting best UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
+        f"Run id={run_id} Selecting best UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
     )
 
     in_notebook = is_notebook()
@@ -248,7 +267,30 @@ def udm_select(
             logger.debug(f"Download list exists for {grid_id}. Skipping...")
             continue
 
-        coverage_df = calculate_udm_coverages(results_grid_dir, grid_path, config)
+        try:
+            coverage_df = calculate_udm_coverages(
+                results_grid_dir=results_grid_dir,
+                grid_path=grid_path,
+                config=config,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except Exception as e:
+            logger.error(f"Grid {grid_id} failed in udm_select: {e}")
+            log_structured_failure(
+                save_path=save_path,
+                run_id=run_id,
+                category=CATEGORY,
+                payload={
+                    "grid_id": grid_id,
+                    "step": "calculate_udm_coverages",
+                    "error": str(e),
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                },
+            )
+            continue
+
         if coverage_df is not None:
             coverage_df.to_csv(csv_path, index=False)
 

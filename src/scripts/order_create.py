@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from itertools import islice
 from pathlib import Path
+from uuid import uuid4
 
 import click
 import pandas as pd
@@ -17,12 +18,14 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
+    log_structured_failure,
     retry_task,
     run_async_function,
     setup_logger,
 )
 
 logger = logging.getLogger(__name__)
+CATEGORY = Path(__file__).stem
 
 
 def batched(iterable, size):
@@ -72,10 +75,20 @@ def build_region_order_request(
 
 # Create an order for image data
 async def create_region_order(
-    sess: Session, order_request: dict, order_idx: int, save_path: Path, config: DownloadConfig, sem: asyncio.Semaphore
+    sess: Session,
+    order_request: dict,
+    order_idx: int,
+    results_grid_dir: Path,
+    config: DownloadConfig,
+    run_id: str,
+    start_date: datetime,
+    end_date: datetime,
+    save_dir,
+    sem: asyncio.Semaphore,
 ) -> None:
     logger.debug(f"Creating order {order_request['name']}")
     cl = OrdersClient(sess)
+    grid_id = results_grid_dir.stem
 
     # Schedule the orders
     # Wait for the order to be ready
@@ -83,13 +96,27 @@ async def create_region_order(
         async with sem:
             return await cl.create_order(order_request)
 
-    order = await retry_task(create_order_retry, config.download_retries_max, config.download_backoff)
+    try:
+        order = await retry_task(create_order_retry, config.download_retries_max, config.download_backoff)
 
-    # Save order
-    with open(save_path / f"order_{order_idx}.json", "w") as f:
-        json.dump(order, f)
+        # Save order
+        with open(results_grid_dir / f"order_{order_idx}.json", "w") as f:
+            json.dump(order, f)
 
-    logger.debug(f"Finished creating order {order_request['name']}")
+        logger.debug(f"Finished creating order {order_request['name']}")
+    except Exception as e:
+        log_structured_failure(
+            save_path=save_dir,
+            run_id=run_id,
+            category=CATEGORY,
+            payload={
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "grid_id": grid_id,
+                "error": str(e),
+                "order_idx": order_idx,
+            },
+        )
 
 
 # Create list of orders to create across all grid paths.
@@ -163,6 +190,7 @@ async def create_orders(
     end_date: datetime,
     config: DownloadConfig,
     in_notebook: bool,
+    run_id: str,
 ):
     # Create the order requests objects
     logger.info("Creating order requests")
@@ -175,7 +203,20 @@ async def create_orders(
 
     try:
         order_tasks = [
-            asyncio.create_task(create_region_order(sess, order_request, order_idx, results_grid_dir, config, sem))
+            asyncio.create_task(
+                create_region_order(
+                    sess=sess,
+                    order_request=order_request,
+                    order_idx=order_idx,
+                    results_grid_dir=results_grid_dir,
+                    config=config,
+                    run_id=run_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    save_dir=save_dir,
+                    sem=sem,
+                )
+            )
             for order_request, order_idx, results_grid_dir in order_requests
         ]
         await asyncio.gather(*order_tasks)
@@ -187,12 +228,17 @@ async def create_orders(
 
 # Main loop. Create order requests and download the orders when ready.
 async def main_loop(
-    config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime, in_notebook: bool
+    config: DownloadConfig,
+    save_path: Path,
+    start_date: datetime,
+    end_date: datetime,
+    in_notebook: bool,
+    run_id: str,
 ) -> None:
     grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
 
     async with Session() as sess:
-        await create_orders(sess, grid_paths, save_path, start_date, end_date, config, in_notebook)
+        await create_orders(sess, grid_paths, save_path, start_date, end_date, config, in_notebook, run_id)
 
 
 def order_create(
@@ -204,13 +250,15 @@ def order_create(
 
     setup_logger(save_path, log_filename="order_create.log")
 
+    run_id = uuid4().hex
     logger.info(
-        f"Create image orders for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
+        f"Run id={run_id} Create image orders for start_date={start_date} end_date={end_date} "
+        f"grids={config.grid_dir} to={save_path}"
     )
 
     in_notebook = is_notebook()
 
-    return run_async_function(main_loop(config, save_path, start_date, end_date, in_notebook))
+    return run_async_function(main_loop(config, save_path, start_date, end_date, in_notebook, run_id))
 
 
 @click.command()

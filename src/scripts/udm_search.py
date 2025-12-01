@@ -19,12 +19,15 @@ from src.util import (
     get_tqdm,
     has_crs,
     is_notebook,
+    log_structured_failure,
     retry_task,
     run_async_function,
     setup_logger,
 )
 
 logger = logging.getLogger(__name__)
+
+CATEGORY = Path(__file__).stem
 
 
 # Saves the geometries of the search results to a GeoJSON file in the specified output path.
@@ -173,6 +176,7 @@ async def run_search(
     grid_path: Path,
     pbar,
     sem: asyncio.Semaphore,
+    run_id: str,
 ) -> None:
     """Handles one grid: searches, filters, and returns search result tuples."""
     grid_id = grid_path.stem
@@ -216,14 +220,31 @@ async def run_search(
             save_search_geom(filtered_item_list, grid_save_path / "search_geometries.geojson")
 
     except Exception as e:
-        logger.error(f"Grid {grid_path.stem} failed: {e}")
+        logger.error(f"Grid {grid_id} failed: {e}")
+        log_structured_failure(
+            save_path=save_path,
+            run_id=run_id,
+            category=CATEGORY,
+            payload={
+                "grid_id": grid_id,
+                "error": str(e),
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+            },
+        )
 
     pbar.update(1)
 
 
 # Saves a list of all UDMs which need to be downloaded across all grids.
 async def run_searches_gather(
-    sess: Session, config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime, in_notebook: bool
+    sess: Session,
+    config: DownloadConfig,
+    save_path: Path,
+    start_date: datetime,
+    end_date: datetime,
+    in_notebook: bool,
+    run_id: str,
 ) -> None:
     grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
     total = len(grid_paths)
@@ -234,17 +255,23 @@ async def run_searches_gather(
     tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
     with tqdm(total=total, desc="Create Search", position=0, dynamic_ncols=True) as pbar:
         coros = [
-            run_search(sess, config, save_path, start_date, end_date, grid_path, pbar, sem) for grid_path in grid_paths
+            run_search(sess, config, save_path, start_date, end_date, grid_path, pbar, sem, run_id)
+            for grid_path in grid_paths
         ]
         await asyncio.gather(*coros)
 
 
 # Main loop. Save all overlapping UDMs for a given date and directory of grids.
 async def main_loop(
-    config: DownloadConfig, save_path: Path, start_date: datetime, end_date: datetime, in_notebook: bool
+    config: DownloadConfig,
+    save_path: Path,
+    start_date: datetime,
+    end_date: datetime,
+    in_notebook: bool,
+    run_id: str,
 ) -> None:
     async with Session() as sess:
-        await run_searches_gather(sess, config, save_path, start_date, end_date, in_notebook)
+        await run_searches_gather(sess, config, save_path, start_date, end_date, in_notebook, run_id)
 
 
 def udm_search(
@@ -256,13 +283,15 @@ def udm_search(
 
     setup_logger(save_path, log_filename="udm_search.log")
 
+    run_id = uuid4().hex
     logger.info(
-        f"Searching for UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
+        f"Run id={run_id} Searching for UDMs for start_date={start_date} end_date={end_date} "
+        f"grids={config.grid_dir} to={save_path}"
     )
 
     in_notebook = is_notebook()
 
-    return run_async_function(main_loop(config, save_path, start_date, end_date, in_notebook))
+    return run_async_function(main_loop(config, save_path, start_date, end_date, in_notebook, run_id))
 
 
 @click.command()

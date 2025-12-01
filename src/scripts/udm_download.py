@@ -3,6 +3,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 import click
 import rasterio
@@ -17,12 +18,14 @@ from src.util import (
     create_config,
     get_tqdm,
     is_notebook,
+    log_structured_failure,
     retry_task,
     run_async_function,
     setup_logger,
 )
 
 logger = logging.getLogger(__name__)
+CATEGORY = Path(__file__).stem
 
 
 # Asynchronously downloads a single udm asset for the given item.
@@ -114,7 +117,14 @@ async def download_udm(
 
 # Asynchronously downloads all udm assets for the given list of items.
 async def download_all_udms(
-    item_lists: list[tuple[dict, Path]], sess: Session, config: DownloadConfig, in_notebook: bool
+    item_lists: list[tuple[dict, Path]],
+    sess: Session,
+    config: DownloadConfig,
+    in_notebook: bool,
+    save_path: Path,
+    run_id: str,
+    start_date: datetime,
+    end_date: datetime,
 ) -> None:
     logger.info(f"Downloading {len(item_lists)} udm items")
 
@@ -158,17 +168,46 @@ async def download_all_udms(
         logger.error("\n❌ Failed Tasks Summary:")
         for grid_id, asset_id, step, error in failures:
             logger.error(f" - Grid {grid_id} Asset {asset_id}: Failed at {step} with error: {error}")
+            log_structured_failure(
+                save_path=save_path,
+                run_id=run_id,
+                category=CATEGORY,
+                payload={
+                    "grid_id": grid_id,
+                    "asset_id": asset_id,
+                    "step": step,
+                    "error": error,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                },
+            )
     else:
         logger.info("All assets processed successfully!")
 
 
 # Main loop. Download all overlapping UDMs for a given date and directory of grids.
-async def main_loop(config: DownloadConfig, save_path: Path, in_notebook: bool) -> None:
+async def main_loop(
+    config: DownloadConfig,
+    save_path: Path,
+    in_notebook: bool,
+    run_id: str,
+    start_date: datetime,
+    end_date: datetime,
+) -> None:
     to_download = get_search_results(config, save_path, in_notebook)
 
     async with Session() as sess:
         # loop through and download all the UDM2 files for the given date and grid
-        await download_all_udms(to_download, sess, config, in_notebook)
+        await download_all_udms(
+            item_lists=to_download,
+            sess=sess,
+            config=config,
+            in_notebook=in_notebook,
+            save_path=save_path,
+            run_id=run_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
 
 def udm_download(
@@ -180,13 +219,14 @@ def udm_download(
 
     setup_logger(save_path, log_filename="udm_download.log")
 
+    run_id = uuid4().hex
     logger.info(
-        f"Downloading UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
+        f"Run id={run_id} Downloading UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir} to={save_path}"
     )
 
     in_notebook = is_notebook()
 
-    return run_async_function(main_loop(config, save_path, in_notebook))
+    return run_async_function(main_loop(config, save_path, in_notebook, run_id, start_date, end_date))
 
 
 @click.command()
