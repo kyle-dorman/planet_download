@@ -55,7 +55,9 @@ def build_region_order_request(
     config: DownloadConfig,
 ) -> dict:
 
-    name = f"{start_date}_{end_date}_{filename}"
+    start_date_str = start_date.strftime("%Y-%m-%d")
+    end_date_str = end_date.strftime("%Y-%m-%d")
+    name = f"{start_date_str}_{end_date_str}_{filename}"
 
     products = [
         order_request.product(item_ids=item_ids, product_bundle=product_bundle, item_type=config.item_type.value)
