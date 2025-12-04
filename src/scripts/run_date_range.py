@@ -30,7 +30,7 @@ def run_script(script_path: str, start_date: datetime, end_date: datetime, confi
         )
     except subprocess.CalledProcessError:
         click.secho(
-            f"❌ Error: Failed to run {script_path} for start-date: {start_date_str}, end-date: {end_date_str}",
+            f"[FAILED] Error: Failed to run {script_path} for start-date: {start_date_str}, end-date: {end_date_str}",
             fg="red",
         )
         sys.exit(1)

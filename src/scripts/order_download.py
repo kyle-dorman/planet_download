@@ -223,9 +223,9 @@ async def download_orders(
     failures = [res for res in results if res is not None]
 
     if failures:
-        logger.error("\n❌ Failed Tasks Summary:")
+        logger.error("\n[FAILED] Failed Tasks Summary:")
         for grid_id, step, error in failures:
-            logger.error(f" - Grid {grid_id}: Failed at {step} with error: {error}")
+            logger.error(f" Grid {grid_id}: Failed at {step} with error: {error}")
             log_structured_failure(
                 save_path=save_path,
                 run_id=run_id,
