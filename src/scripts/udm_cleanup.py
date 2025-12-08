@@ -29,7 +29,7 @@ def udm_cleanup(
 
     logger.info(f"Cleaning up UDMs for start_date={start_date} end_date={end_date} grids={config.grid_dir}")
 
-    if not config.cleanup:
+    if not config.cleanup_udm:
         logger.info("Cleanup OFF")
         return
 

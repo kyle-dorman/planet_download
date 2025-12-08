@@ -165,7 +165,7 @@ async def download_single_order(
         return (grid_id, "unzip", str(e))
     step_progress_bars["unzip"].update(1)
 
-    if config.cleanup:
+    if config.cleanup_zip:
         try:
             cleanup(order, save_dir)
         except Exception as e:

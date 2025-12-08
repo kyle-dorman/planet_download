@@ -56,8 +56,11 @@ class DownloadConfig:
     # Path to copy the final surface reflectance and UDM data to. Not required.
     processing_dir: Path | None = None
 
-    # Cleanup zip directory and full size UDMs. Saves space but less reproducable.
-    cleanup: bool = True
+    # Cleanup zip directory. Saves space but less reproducable.
+    cleanup_zip: bool = True
+
+    # Cleanup full size UDMs. Saves space but less reproducable.
+    cleanup_udm: bool = True
 
     # The type of scene
     item_type: ItemType = ItemType.PSScene
