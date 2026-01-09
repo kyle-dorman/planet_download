@@ -145,13 +145,13 @@ def calculate_udm_coverages(
             tif_datetime = parse_acquisition_datetime(udm_path)
 
             udm_data = next(d for d in grid_search_data if d.get("id", "") == asset_id)
-            clear_percent = udm_data.get("properties", {}).get("clear_percent")
+            clear_percent = udm_data.get("properties", {}).get("clear_percent", 100.0)
 
             item_geom: Polygon = udm_gdf[udm_gdf.id == asset_id].geometry.iloc[0]  # type: ignore
             intersection_pct = calculate_intersection_pct(grid, item_geom)
 
-            # We COULD do this during udm query time but this allows changing the filtering level
-            # after downloading based on number of results.
+            # We ALSO do this during udm query time but checking a second time allows changing the
+            # filtering level after downloading based on number of results.
             if config.clear_percent and clear_percent < config.clear_percent:
                 logger.debug(
                     f"Skipping {asset_id} b/c clear_percent is too low {clear_percent} < {config.clear_percent}"
