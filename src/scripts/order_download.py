@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -84,20 +85,41 @@ def unzip_download(order_idx: int, order_request: dict, results_grid_dir: Path) 
     order_download_paths = list(order_download_dir.glob("*.zip"))
     assert len(order_download_paths) == 1, order_download_paths
     order_download_path = order_download_paths[0]
+
     try:
-        # Open the zip file and extract its contents
-        with zipfile.ZipFile(order_download_path) as zip_ref:
-            zip_ref.extractall(results_grid_dir)
+        with tempfile.TemporaryDirectory(dir=results_grid_dir) as tmpdir:
+            tmp_extract_dir = Path(tmpdir)
+
+            # Open the zip file and extract its contents to a temp directory
+            with zipfile.ZipFile(order_download_path) as zip_ref:
+                zip_ref.extractall(tmp_extract_dir)
+
+            # Expect the usual layout: <tmp>/files/* and <tmp>/manifest.json
+            tmp_files_dir = tmp_extract_dir / "files"
+            tmp_manifest_path = tmp_extract_dir / "manifest.json"
+            assert tmp_files_dir.exists(), tmp_files_dir
+            assert tmp_manifest_path.exists(), tmp_manifest_path
+
+            # Merge extracted files into the final files/ directory
+            order_files_dir.mkdir(parents=True, exist_ok=True)
+            for src in tmp_files_dir.iterdir():
+                dst = order_files_dir / src.name
+                if dst.exists():
+                    # If we're re-downloading a failed/partial order, allow overwrite
+                    if dst.is_dir():
+                        shutil.rmtree(dst)
+                    else:
+                        dst.unlink()
+                shutil.move(str(src), str(dst))
+
+            # Move the manifest to be a per order_idx manifest
+            shutil.move(str(tmp_manifest_path), str(results_grid_dir / f"manifest_{order_idx}.json"))
+
     except zipfile.BadZipFile as e:
-        logger.error(f"Path: {order_download_path}")
+        logger.exception(e)
         raise e
 
     assert order_files_dir.exists(), order_files_dir
-
-    # Move the manifest to be a per order_idx manifest
-    manifest_path = results_grid_dir / "manifest.json"
-    assert manifest_path.exists(), manifest_path
-    shutil.move(manifest_path, results_grid_dir / f"manifest_{order_idx}.json")
 
 
 def cleanup(order_request: dict, results_grid_dir: Path) -> None:
@@ -152,16 +174,25 @@ async def download_single_order(
                     os.remove(pth)
                     raise zipfile.BadZipFile(f"File is not a zip file {pth}")
 
-        try:
-            await retry_task(download_order, config.download_retries_max, config.download_backoff)
-        except Exception as e:
-            return (grid_id, "download_order", e)
-        step_progress_bars["download_order"].update(1)
+                # Full integrity check (CRC over all members). This catches truncated/partial zips
+                # that can still look like a zip and even partially extract.
+                with zipfile.ZipFile(pth) as zf:
+                    bad_member = zf.testzip()
+                    if bad_member is not None:
+                        os.remove(pth)
+                        raise zipfile.BadZipFile(f"CRC failed for member '{bad_member}' in {pth}")
+
+        async def download_and_unzip():
+            await download_order()
+            unzip_download(order_idx, order, save_dir)
 
         try:
-            unzip_download(order_idx, order, save_dir)
+            await retry_task(download_and_unzip, config.download_retries_max, config.download_backoff)
         except Exception as e:
-            return (grid_id, "unzip", e)
+            return (grid_id, "download_unzip", e)
+
+        # Both steps completed successfully
+        step_progress_bars["download_order"].update(1)
         step_progress_bars["unzip"].update(1)
 
         if config.cleanup_zip:
