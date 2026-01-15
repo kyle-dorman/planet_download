@@ -37,48 +37,47 @@ async def activate_region_udm(
     config: DownloadConfig,
     step_progress_bars: dict,
     sem: asyncio.Semaphore,
-) -> tuple[str, str, str, str] | None:
-    udm_id = order["id"]
-    grid_id = grid_save_path.name
+) -> tuple[str, str, str, Exception] | None:
+    async with sem:
+        udm_id = order["id"]
+        grid_id = grid_save_path.name
 
-    output_path = grid_save_path / "udm"
-    output_path.mkdir(parents=True, exist_ok=True)
+        output_path = grid_save_path / "udm"
+        output_path.mkdir(parents=True, exist_ok=True)
 
-    # Exit early if there is a file that matches the order_id.
-    if any(pth.stem.startswith(udm_id) for pth in output_path.iterdir()):
-        for v in step_progress_bars.values():
-            v.update(1)
-        return
+        # Exit early if there is a file that matches the order_id.
+        if any(pth.stem.startswith(udm_id) for pth in output_path.iterdir()):
+            for v in step_progress_bars.values():
+                v.update(1)
+            return
 
-    cl = DataClient(sess)
+        cl = DataClient(sess)
 
-    asset_type_id = udm_asset_string(config)
+        asset_type_id = udm_asset_string(config)
 
-    # Get Asset
-    async def get_asset():
-        async with sem:
+        # Get Asset
+        async def get_asset():
             return await cl.get_asset(
                 item_type_id=order["properties"]["item_type"], item_id=udm_id, asset_type_id=asset_type_id
             )
 
-    try:
-        asset_desc = await retry_task(get_asset, config.download_retries_max, config.download_backoff)
-    except Exception as e:
+        try:
+            asset_desc = await retry_task(get_asset, config.download_retries_max, config.download_backoff)
+        except Exception as e:
+            step_progress_bars["get_asset"].update(1)
+            return (grid_id, udm_id, "get_asset", e)
         step_progress_bars["get_asset"].update(1)
-        return (grid_id, udm_id, "get_asset", str(e))
-    step_progress_bars["get_asset"].update(1)
 
-    # Activate Asset
-    async def activate_asset():
-        async with sem:
+        # Activate Asset
+        async def activate_asset():
             await cl.activate_asset(asset=asset_desc)
 
-    try:
-        await retry_task(activate_asset, config.download_retries_max, config.download_backoff)
-    except Exception as e:
+        try:
+            await retry_task(activate_asset, config.download_retries_max, config.download_backoff)
+        except Exception as e:
+            step_progress_bars["activate_asset"].update(1)
+            return (grid_id, udm_id, "activate_asset", e)
         step_progress_bars["activate_asset"].update(1)
-        return (grid_id, udm_id, "activate_asset", str(e))
-    step_progress_bars["activate_asset"].update(1)
 
 
 # Asynchronously activated all udm assets for the given list of items.
@@ -138,7 +137,9 @@ async def activate_all_udms(
                     "grid_id": grid_id,
                     "asset_id": asset_id,
                     "step": step,
-                    "error": error,
+                    "error": repr(error),
+                    "error_type": type(error).__name__,
+                    "error_args": error.args,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
                 },

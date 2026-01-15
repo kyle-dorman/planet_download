@@ -193,45 +193,47 @@ async def run_search(
     grid_poly = load_grid(grid_path)
     grid_save_path.mkdir(parents=True, exist_ok=True)
 
-    try:
+    async with sem:
+        try:
 
-        async def _collect_lazy():
-            lazy = await search(
-                sess=sess,
-                grid_path=grid_path,
-                grid_save_path=grid_save_path,
-                config=config,
-                start_date=start_date,
-                end_date=end_date,
-            )
-            return [i async for i in lazy]
+            async def _collect_lazy():
+                lazy = await search(
+                    sess=sess,
+                    grid_path=grid_path,
+                    grid_save_path=grid_save_path,
+                    config=config,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                return [i async for i in lazy]
 
-        async with sem:
             item_list = await retry_task(_collect_lazy, config.download_retries_max, config.download_backoff)
 
-        filtered_item_list = []
-        for item in item_list:
-            if grids_overlap(item, grid_poly, config.percent_added):
-                filtered_item_list.append(item)
+            filtered_item_list = []
+            for item in item_list:
+                if grids_overlap(item, grid_poly, config.percent_added):
+                    filtered_item_list.append(item)
 
-        with results_path.open("w") as f:
-            json.dump(filtered_item_list, f)
-        if len(filtered_item_list):
-            save_search_geom(filtered_item_list, grid_save_path / "search_geometries.geojson")
+            with results_path.open("w") as f:
+                json.dump(filtered_item_list, f)
+            if len(filtered_item_list):
+                save_search_geom(filtered_item_list, grid_save_path / "search_geometries.geojson")
 
-    except Exception as e:
-        logger.error(f"Grid {grid_id} failed: {e}")
-        log_structured_failure(
-            save_path=save_path,
-            run_id=run_id,
-            category=CATEGORY,
-            payload={
-                "grid_id": grid_id,
-                "error": str(e),
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-            },
-        )
+        except Exception as error:
+            logger.error(f"Grid {grid_id} failed: {error}")
+            log_structured_failure(
+                save_path=save_path,
+                run_id=run_id,
+                category=CATEGORY,
+                payload={
+                    "grid_id": grid_id,
+                    "error": repr(error),
+                    "error_type": type(error).__name__,
+                    "error_args": error.args,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                },
+            )
 
     pbar.update(1)
 

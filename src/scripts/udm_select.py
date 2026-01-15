@@ -170,8 +170,8 @@ def calculate_udm_coverages(
                     out_path=None,
                     bands=[SHADOW_BAND, LIGHT_HAZE_BAND, HEAVY_HAZE_BAND, CLOUD_BAND, CONFIDENCE_BAND],
                 )
-            except WarpOperationError as e:
-                logger.exception(e)
+            except WarpOperationError as error:
+                logger.exception(error)
                 log_structured_failure(
                     save_path=results_grid_dir,
                     run_id=cleaned_asset_id(udm_path),
@@ -179,7 +179,9 @@ def calculate_udm_coverages(
                     payload={
                         "grid_id": grid_id,
                         "step": "reproject_and_crop_to_grid",
-                        "error": str(e),
+                        "error": repr(error),
+                        "error_type": type(error).__name__,
+                        "error_args": error.args,
                         "start_date": start_date.isoformat(),
                         "end_date": end_date.isoformat(),
                     },
@@ -275,8 +277,8 @@ def udm_select(
                 start_date=start_date,
                 end_date=end_date,
             )
-        except Exception as e:
-            logger.error(f"Grid {grid_id} failed in udm_select: {e}")
+        except Exception as error:
+            logger.error(f"Grid {grid_id} failed in udm_select: {error}")
             log_structured_failure(
                 save_path=save_path,
                 run_id=run_id,
@@ -284,7 +286,9 @@ def udm_select(
                 payload={
                     "grid_id": grid_id,
                     "step": "calculate_udm_coverages",
-                    "error": str(e),
+                    "error": repr(error),
+                    "error_type": type(error).__name__,
+                    "error_args": error.args,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
                 },

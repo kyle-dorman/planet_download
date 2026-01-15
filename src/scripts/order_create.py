@@ -88,37 +88,39 @@ async def create_region_order(
     save_dir,
     sem: asyncio.Semaphore,
 ) -> None:
-    logger.debug(f"Creating order {order_request['name']}")
-    cl = OrdersClient(sess)
-    grid_id = results_grid_dir.stem
+    async with sem:
+        logger.debug(f"Creating order {order_request['name']}")
+        cl = OrdersClient(sess)
+        grid_id = results_grid_dir.stem
 
-    # Schedule the orders
-    # Wait for the order to be ready
-    async def create_order_retry():
-        async with sem:
+        # Schedule the orders
+        # Wait for the order to be ready
+        async def create_order_retry():
             return await cl.create_order(order_request)
 
-    try:
-        order = await retry_task(create_order_retry, config.download_retries_max, config.download_backoff)
+        try:
+            order = await retry_task(create_order_retry, config.download_retries_max, config.download_backoff)
 
-        # Save order
-        with open(results_grid_dir / f"order_{order_idx}.json", "w") as f:
-            json.dump(order, f)
+            # Save order
+            with open(results_grid_dir / f"order_{order_idx}.json", "w") as f:
+                json.dump(order, f)
 
-        logger.debug(f"Finished creating order {order_request['name']}")
-    except Exception as e:
-        log_structured_failure(
-            save_path=save_dir,
-            run_id=run_id,
-            category=CATEGORY,
-            payload={
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-                "grid_id": grid_id,
-                "error": str(e),
-                "order_idx": order_idx,
-            },
-        )
+            logger.debug(f"Finished creating order {order_request['name']}")
+        except Exception as error:
+            log_structured_failure(
+                save_path=save_dir,
+                run_id=run_id,
+                category=CATEGORY,
+                payload={
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "grid_id": grid_id,
+                    "error": repr(error),
+                    "error_type": type(error).__name__,
+                    "error_args": error.args,
+                    "order_idx": order_idx,
+                },
+            )
 
 
 # Create list of orders to create across all grid paths.

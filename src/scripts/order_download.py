@@ -127,25 +127,24 @@ async def download_single_order(
     step_progress_bars: dict,
     sem: asyncio.Semaphore,
 ) -> tuple[str, str, Exception] | None:
-    grid_id = save_dir.stem
-    order_id = str(order["id"])
+    async with sem:
+        grid_id = save_dir.stem
+        order_id = str(order["id"])
 
-    cl = OrdersClient(sess)
+        cl = OrdersClient(sess)
 
-    # Wait for the order to be ready
-    async def wait_order():
-        async with sem:
+        # Wait for the order to be ready
+        async def wait_order():
             await cl.wait(order_id, delay=config.client_delay, max_attempts=config.client_max_attempts)
 
-    try:
-        await retry_task(wait_order, config.download_retries_max, config.download_backoff)
-    except Exception as e:
-        return (grid_id, "wait_order", e)
-    step_progress_bars["wait_order"].update(1)
+        try:
+            await retry_task(wait_order, config.download_retries_max, config.download_backoff)
+        except Exception as e:
+            return (grid_id, "wait_order", e)
+        step_progress_bars["wait_order"].update(1)
 
-    # Download the files
-    async def download_order():
-        async with sem:
+        # Download the files
+        async def download_order():
             await cl.download_order(order_id, directory=save_dir, overwrite=True, progress_bar=False)
 
             for pth in save_dir.glob("*.zip"):
@@ -153,11 +152,11 @@ async def download_single_order(
                     os.remove(pth)
                     raise zipfile.BadZipFile(f"File is not a zip file {pth}")
 
-    try:
-        await retry_task(download_order, config.download_retries_max, config.download_backoff)
-    except Exception as e:
-        return (grid_id, "download_order", e)
-    step_progress_bars["download_order"].update(1)
+        try:
+            await retry_task(download_order, config.download_retries_max, config.download_backoff)
+        except Exception as e:
+            return (grid_id, "download_order", e)
+        step_progress_bars["download_order"].update(1)
 
     try:
         unzip_download(order_idx, order, save_dir)
@@ -233,7 +232,9 @@ async def download_orders(
                 payload={
                     "grid_id": grid_id,
                     "step": step,
-                    "error": error,
+                    "error": repr(error),
+                    "error_type": type(error).__name__,
+                    "error_args": error.args,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
                 },
