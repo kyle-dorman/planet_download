@@ -82,20 +82,32 @@ async def download_udm(
 
         # Wait for Asset
         async def wait_asset():
-            return await cl.wait_asset(
-                asset=asset_desc, delay=config.client_delay, max_attempts=config.client_max_attempts
-            )
+            await cl.wait_asset(asset=asset_desc, delay=config.client_delay, max_attempts=config.client_max_attempts)
 
         try:
-            asset = await retry_task(wait_asset, config.download_retries_max, config.download_backoff)
+            _ = await retry_task(wait_asset, config.download_retries_max, config.download_backoff)
         except Exception as e:
             step_progress_bars["wait_asset"].update(1)
             return (grid_id, udm_id, "wait_asset", e)
         step_progress_bars["wait_asset"].update(1)
 
         # Download Asset
+        # NOTE: Planet download URLs/tokens can expire (often ~1–2 hours).
+        # Always fetch a fresh asset descriptor immediately before downloading.
         async def download_asset():
-            pth = await cl.download_asset(asset=asset, directory=output_path, overwrite=False, progress_bar=False)
+            fresh_asset_desc = await cl.get_asset(
+                item_type_id=order["properties"]["item_type"],
+                item_id=udm_id,
+                asset_type_id=asset_type_id,
+            )
+
+            pth = await cl.download_asset(
+                asset=fresh_asset_desc,
+                directory=output_path,
+                overwrite=False,
+                progress_bar=False,
+            )
+
             # Ensure pth is valid, otherwise remove and (hopefully) retry
             try:
                 with rasterio.open(pth) as src:
