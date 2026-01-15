@@ -126,7 +126,7 @@ async def download_single_order(
     config: DownloadConfig,
     step_progress_bars: dict,
     sem: asyncio.Semaphore,
-) -> tuple[str, str, str] | None:
+) -> tuple[str, str, Exception] | None:
     grid_id = save_dir.stem
     order_id = str(order["id"])
 
@@ -140,13 +140,13 @@ async def download_single_order(
     try:
         await retry_task(wait_order, config.download_retries_max, config.download_backoff)
     except Exception as e:
-        return (grid_id, "wait_order", str(e))
+        return (grid_id, "wait_order", e)
     step_progress_bars["wait_order"].update(1)
 
     # Download the files
     async def download_order():
         async with sem:
-            await cl.download_order(order_id, directory=save_dir, overwrite=False, progress_bar=False)
+            await cl.download_order(order_id, directory=save_dir, overwrite=True, progress_bar=False)
 
             for pth in save_dir.glob("*.zip"):
                 if not zipfile.is_zipfile(pth):
@@ -156,20 +156,20 @@ async def download_single_order(
     try:
         await retry_task(download_order, config.download_retries_max, config.download_backoff)
     except Exception as e:
-        return (grid_id, "download_order", str(e))
+        return (grid_id, "download_order", e)
     step_progress_bars["download_order"].update(1)
 
     try:
         unzip_download(order_idx, order, save_dir)
     except Exception as e:
-        return (grid_id, "unzip", str(e))
+        return (grid_id, "unzip", e)
     step_progress_bars["unzip"].update(1)
 
     if config.cleanup_zip:
         try:
             cleanup(order, save_dir)
         except Exception as e:
-            return (grid_id, "cleanup", str(e))
+            return (grid_id, "cleanup", e)
     step_progress_bars["cleanup"].update(1)
 
 
