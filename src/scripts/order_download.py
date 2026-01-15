@@ -158,18 +158,18 @@ async def download_single_order(
             return (grid_id, "download_order", e)
         step_progress_bars["download_order"].update(1)
 
-    try:
-        unzip_download(order_idx, order, save_dir)
-    except Exception as e:
-        return (grid_id, "unzip", e)
-    step_progress_bars["unzip"].update(1)
-
-    if config.cleanup_zip:
         try:
-            cleanup(order, save_dir)
+            unzip_download(order_idx, order, save_dir)
         except Exception as e:
-            return (grid_id, "cleanup", e)
-    step_progress_bars["cleanup"].update(1)
+            return (grid_id, "unzip", e)
+        step_progress_bars["unzip"].update(1)
+
+        if config.cleanup_zip:
+            try:
+                cleanup(order, save_dir)
+            except Exception as e:
+                return (grid_id, "cleanup", e)
+        step_progress_bars["cleanup"].update(1)
 
 
 # Download an order and retry failed downloads a fixed number of times.
