@@ -128,7 +128,8 @@ async def activate_all_udms(
     if failures:
         logger.error("\n[FAILED] Failed Tasks Summary:")
         for grid_id, asset_id, step, timestamp, error in failures:
-            logger.error(f" - Grid {grid_id} Asset {asset_id}: Failed at {step} with error: {error}")
+            logger.error(f" - Grid {grid_id} Asset {asset_id}: Failed at {step} with error:")
+            logger.exception(error)
             log_structured_failure(
                 save_path=save_path,
                 run_id=run_id,
