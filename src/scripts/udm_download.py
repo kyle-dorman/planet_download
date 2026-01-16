@@ -143,7 +143,7 @@ async def download_all_udms(
     tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
 
     # download items with limited concurrency and one progress bar
-    sem = asyncio.Semaphore(config.max_concurrent_tasks)
+    sem = asyncio.Semaphore(config.max_concurrent_download_tasks)
 
     # Initialize progress bars for each step
     with (

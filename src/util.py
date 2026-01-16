@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import multiprocessing as mp
+import random
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -103,19 +104,50 @@ def cleaned_asset_id(filepath: Path) -> str:
         raise RuntimeError(f"Unexpected asset name {filepath.stem}")
 
 
-# Retry wrapper around an async function that may fail
 async def retry_task(task_func, retries: int, retry_delay: float) -> Any:
+    """Retry wrapper around an async function with exponential backoff + jitter.
+
+    Jitter helps avoid a "thundering herd" where many concurrent tasks fail and
+    then retry at the exact same times.
+
+    Parameters
+    ----------
+    task_func:
+        Async callable with no args.
+    retries:
+        Maximum number of attempts (including the first attempt).
+    retry_delay:
+        Base delay in seconds for exponential backoff.
+    """
+
     attempt = 0
+    last_exc: Exception | None = None
+
+    # Cap backoff so we don't end up sleeping for extremely long times.
+    max_backoff_s = 60.0
+
     while attempt < retries:
         try:
             return await task_func()
         except Exception as e:
+            last_exc = e
             attempt += 1
-            if attempt < retries:
-                wait_time = retry_delay * (2 ** (attempt - 1))  # Exponential backoff
-                await asyncio.sleep(wait_time)
-            else:
-                raise e  # Return the error after max retries
+
+            if attempt >= retries:
+                break
+
+            # Exponential backoff: retry_delay, 2*retry_delay, 4*retry_delay, ...
+            base_wait = retry_delay * (2 ** (attempt - 1))
+            base_wait = min(base_wait, max_backoff_s)
+
+            # "Full jitter" strategy: sleep uniformly in [0, base_wait].
+            # This spreads retries out in time under high concurrency.
+            wait_time = random.random() * base_wait
+
+            await asyncio.sleep(wait_time)
+
+    assert last_exc is not None
+    raise last_exc
 
 
 def setup_logger(save_dir: Path | None = None, log_filename: str = "log.log"):

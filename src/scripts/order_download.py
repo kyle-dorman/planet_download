@@ -169,20 +169,37 @@ async def download_single_order(
 
         # Download the files
         async def download_order():
-            await cl.download_order(order_id, directory=save_dir, overwrite=True, progress_bar=False)
+            # Ensure we start from a clean slate for this order_id. If a previous attempt left behind
+            # a partial download folder/zip, it can cause repeated failures (multiple zips, bad zips, etc.).
+            order_download_dir = save_dir / order_id
+            if order_download_dir.exists():
+                shutil.rmtree(order_download_dir)
 
-            for pth in save_dir.glob("*.zip"):
-                if not zipfile.is_zipfile(pth):
-                    os.remove(pth)
-                    raise zipfile.BadZipFile(f"File is not a zip file {pth}")
+            try:
+                await cl.download_order(order_id, directory=save_dir, overwrite=True, progress_bar=False)
 
-                # Full integrity check (CRC over all members). This catches truncated/partial zips
-                # that can still look like a zip and even partially extract.
-                with zipfile.ZipFile(pth) as zf:
-                    bad_member = zf.testzip()
-                    if bad_member is not None:
+                # Validate any zips that were downloaded. Delete invalid/truncated zips so the retry
+                # logic can re-download cleanly.
+                for pth in order_download_dir.glob("*.zip"):
+                    if not zipfile.is_zipfile(pth):
                         os.remove(pth)
-                        raise zipfile.BadZipFile(f"CRC failed for member '{bad_member}' in {pth}")
+                        raise zipfile.BadZipFile(f"File is not a zip file {pth}")
+
+                    # Full integrity check (CRC over all members). This catches truncated/partial zips
+                    # that can still look like a zip and even partially extract.
+                    with zipfile.ZipFile(pth) as zf:
+                        bad_member = zf.testzip()
+                        if bad_member is not None:
+                            os.remove(pth)
+                            raise zipfile.BadZipFile(f"CRC failed for member '{bad_member}' in {pth}")
+
+            except Exception:
+                # IMPORTANT: If the HTTP request fails mid-stream (timeouts, read errors, peer closes
+                # connection, etc.), Planet/the CDN may have left a partial zip on disk. Remove the
+                # entire per-order download directory so the next retry starts clean.
+                if order_download_dir.exists():
+                    shutil.rmtree(order_download_dir)
+                raise
 
         async def download_and_unzip():
             await download_order()
@@ -221,7 +238,7 @@ async def download_orders(
     logger.info(f"Downloading {total_assets} orders")
 
     # download items with limited concurrency and one progress bar
-    sem = asyncio.Semaphore(config.max_concurrent_tasks)
+    sem = asyncio.Semaphore(config.max_concurrent_download_tasks)
 
     # Initialize progress bars for each step
     tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
