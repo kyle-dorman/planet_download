@@ -119,6 +119,7 @@ async def create_region_order(
                     "error_type": type(error).__name__,
                     "error_args": error.args,
                     "order_idx": order_idx,
+                    "timestamp": datetime.now().isoformat() + "Z",
                 },
             )
 

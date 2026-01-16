@@ -37,7 +37,7 @@ async def activate_region_udm(
     config: DownloadConfig,
     step_progress_bars: dict,
     sem: asyncio.Semaphore,
-) -> tuple[str, str, str, Exception] | None:
+) -> tuple[str, str, str, datetime, Exception] | None:
     async with sem:
         udm_id = order["id"]
         grid_id = grid_save_path.name
@@ -65,7 +65,7 @@ async def activate_region_udm(
             asset_desc = await retry_task(get_asset, config.download_retries_max, config.download_backoff)
         except Exception as e:
             step_progress_bars["get_asset"].update(1)
-            return (grid_id, udm_id, "get_asset", e)
+            return (grid_id, udm_id, "get_asset", datetime.now(), e)
         step_progress_bars["get_asset"].update(1)
 
         # Activate Asset
@@ -76,7 +76,7 @@ async def activate_region_udm(
             await retry_task(activate_asset, config.download_retries_max, config.download_backoff)
         except Exception as e:
             step_progress_bars["activate_asset"].update(1)
-            return (grid_id, udm_id, "activate_asset", e)
+            return (grid_id, udm_id, "activate_asset", datetime.now(), e)
         step_progress_bars["activate_asset"].update(1)
 
 
@@ -127,7 +127,7 @@ async def activate_all_udms(
 
     if failures:
         logger.error("\n[FAILED] Failed Tasks Summary:")
-        for grid_id, asset_id, step, error in failures:
+        for grid_id, asset_id, step, timestamp, error in failures:
             logger.error(f" - Grid {grid_id} Asset {asset_id}: Failed at {step} with error: {error}")
             log_structured_failure(
                 save_path=save_path,
@@ -142,6 +142,7 @@ async def activate_all_udms(
                     "error_args": error.args,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
+                    "timestamp": timestamp.isoformat() + "Z",
                 },
             )
     else:

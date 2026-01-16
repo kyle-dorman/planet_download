@@ -148,7 +148,7 @@ async def download_single_order(
     config: DownloadConfig,
     step_progress_bars: dict,
     sem: asyncio.Semaphore,
-) -> tuple[str, str, Exception] | None:
+) -> tuple[str, str, datetime, Exception] | None:
     async with sem:
         grid_id = save_dir.stem
         order_id = str(order["id"])
@@ -162,7 +162,9 @@ async def download_single_order(
         try:
             await retry_task(wait_order, config.download_retries_max, config.download_backoff)
         except Exception as e:
-            return (grid_id, "wait_order", e)
+            step_progress_bars["wait_order"].update(1)
+            return (grid_id, "wait_order", datetime.now(), e)
+
         step_progress_bars["wait_order"].update(1)
 
         # Download the files
@@ -189,18 +191,18 @@ async def download_single_order(
         try:
             await retry_task(download_and_unzip, config.download_retries_max, config.download_backoff)
         except Exception as e:
-            return (grid_id, "download_unzip", e)
-
-        # Both steps completed successfully
-        step_progress_bars["download_order"].update(1)
-        step_progress_bars["unzip"].update(1)
+            step_progress_bars["download_order"].update(1)
+            return (grid_id, "download_unzip", datetime.now(), e)
 
         if config.cleanup_zip:
             try:
                 cleanup(order, save_dir)
             except Exception as e:
-                return (grid_id, "cleanup", e)
-        step_progress_bars["cleanup"].update(1)
+                step_progress_bars["download_order"].update(1)
+                return (grid_id, "cleanup", datetime.now(), e)
+
+        # Update progress
+        step_progress_bars["download_order"].update(1)
 
 
 # Download an order and retry failed downloads a fixed number of times.
@@ -225,17 +227,13 @@ async def download_orders(
     tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
     with (
         tqdm(total=total_assets, desc="Step 1: Wait for Order", position=0) as wait_pbar,
-        tqdm(total=total_assets, desc="Step 2: Downloading Order", position=1) as download_pbar,
-        tqdm(total=total_assets, desc="Step 3: Unzip Order", position=2) as unzip_pbar,
-        tqdm(total=total_assets, desc="Step 4: Cleanup Order", position=3) as cleanup_pbar,
+        tqdm(total=total_assets, desc="Step 2: Download Order", position=1) as download_pbar,
     ):
 
         # Dictionary to track progress of each step
         step_progress_bars = {
             "wait_order": wait_pbar,
             "download_order": download_pbar,
-            "unzip": unzip_pbar,
-            "cleanup": cleanup_pbar,
         }
 
         # Run all tasks and collect results
@@ -254,7 +252,7 @@ async def download_orders(
 
     if failures:
         logger.error("\n[FAILED] Failed Tasks Summary:")
-        for grid_id, step, error in failures:
+        for grid_id, step, timestamp, error in failures:
             logger.error(f" Grid {grid_id}: Failed at {step} with error: {error}")
             log_structured_failure(
                 save_path=save_path,
@@ -268,6 +266,7 @@ async def download_orders(
                     "error_args": error.args,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
+                    "timestamp": timestamp.isoformat() + "Z",
                 },
             )
     else:

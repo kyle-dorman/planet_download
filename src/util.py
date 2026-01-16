@@ -319,7 +319,6 @@ def log_structured_failure(save_path: Path, run_id: str, category: str, payload:
     record = {
         "run_id": run_id,
         "category": category,
-        "timestamp": datetime.now().isoformat() + "Z",
         **payload,
     }
 

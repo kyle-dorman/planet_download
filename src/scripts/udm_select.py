@@ -184,6 +184,7 @@ def calculate_udm_coverages(
                         "error_args": error.args,
                         "start_date": start_date.isoformat(),
                         "end_date": end_date.isoformat(),
+                        "timestamp": datetime.now().isoformat() + "Z",
                     },
                 )
                 continue
@@ -291,6 +292,7 @@ def udm_select(
                     "error_args": error.args,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
+                    "timestamp": datetime.now().isoformat() + "Z",
                 },
             )
             continue

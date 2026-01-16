@@ -232,6 +232,7 @@ async def run_search(
                     "error_args": error.args,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
+                    "timestamp": datetime.now().isoformat() + "Z",
                 },
             )
 
