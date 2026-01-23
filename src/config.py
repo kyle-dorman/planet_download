@@ -93,7 +93,7 @@ class DownloadConfig:
     max_concurrent_tasks: int = 1000
 
     # Max udm/order download tasks in flight at a time
-    max_concurrent_download_tasks: int = 10
+    max_concurrent_download_tasks: int = 1
 
     # Max number of items in an order (will break a single order into multiple).
     order_item_limit: int = 500
