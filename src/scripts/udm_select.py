@@ -1,7 +1,6 @@
 import json
 import logging
 import tempfile
-import traceback
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -29,7 +28,7 @@ from src.util import (
     get_tqdm,
     is_notebook,
     is_within_n_hours,
-    log_structured_failure,
+    log_exception_failure,
     parse_acquisition_datetime,
     setup_logger,
     tif_paths,
@@ -110,6 +109,8 @@ def calculate_udm_coverages(
     config: DownloadConfig,
     start_date: datetime,
     end_date: datetime,
+    run_id: str | None = None,
+    failure_save_path: Path | None = None,
 ) -> pd.DataFrame | None:
     grid_id = grid_path.stem
     udm_paths = tif_paths(results_grid_dir / "udm")
@@ -172,20 +173,20 @@ def calculate_udm_coverages(
                     bands=[SHADOW_BAND, LIGHT_HAZE_BAND, HEAVY_HAZE_BAND, CLOUD_BAND, CONFIDENCE_BAND],
                 )
             except WarpOperationError as error:
-                logger.exception(error)
-                log_structured_failure(
-                    save_path=results_grid_dir,
-                    run_id=cleaned_asset_id(udm_path),
+                log_exception_failure(
+                    logger=logger,
+                    save_path=failure_save_path or results_grid_dir,
+                    run_id=run_id or asset_id,
                     category=CATEGORY,
+                    step="reproject_and_crop_to_grid",
+                    error=error,
+                    message=f"Grid {grid_id} Asset {asset_id} failed in udm_select at reproject_and_crop_to_grid",
                     payload={
                         "grid_id": grid_id,
-                        "step": "reproject_and_crop_to_grid",
-                        "error": repr(error),
-                        "error_type": type(error).__name__,
-                        "error_args": error.args,
+                        "asset_id": asset_id,
+                        "udm_path": str(udm_path),
                         "start_date": start_date.isoformat(),
                         "end_date": end_date.isoformat(),
-                        "timestamp": datetime.now().isoformat() + "Z",
                     },
                 )
                 continue
@@ -278,23 +279,22 @@ def udm_select(
                 config=config,
                 start_date=start_date,
                 end_date=end_date,
+                run_id=run_id,
+                failure_save_path=save_path,
             )
         except Exception as error:
-            logger.exception("Grid %s failed in udm_select", grid_id)
-            log_structured_failure(
+            log_exception_failure(
+                logger=logger,
                 save_path=save_path,
                 run_id=run_id,
                 category=CATEGORY,
+                step="calculate_udm_coverages",
+                error=error,
+                message=f"Grid {grid_id} failed in udm_select at calculate_udm_coverages",
                 payload={
                     "grid_id": grid_id,
-                    "step": "calculate_udm_coverages",
-                    "error": repr(error),
-                    "error_type": type(error).__name__,
-                    "error_args": error.args,
-                    "traceback": traceback.format_exc(),
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
-                    "timestamp": datetime.now().isoformat() + "Z",
                 },
             )
             continue

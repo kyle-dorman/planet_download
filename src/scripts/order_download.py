@@ -21,7 +21,7 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
-    log_structured_failure,
+    log_exception_failure,
     retry_task,
     run_async_function,
     setup_logger,
@@ -148,7 +148,7 @@ async def download_single_order(
     config: DownloadConfig,
     step_progress_bars: dict,
     sem: asyncio.Semaphore,
-) -> tuple[str, str, datetime, Exception] | None:
+) -> tuple[str, str, int, str, datetime, Exception] | None:
     async with sem:
         grid_id = save_dir.stem
         order_id = str(order["id"])
@@ -163,7 +163,7 @@ async def download_single_order(
             await retry_task(wait_order, config.download_retries_max, config.download_backoff)
         except Exception as e:
             step_progress_bars["wait_order"].update(1)
-            return (grid_id, "wait_order", datetime.now(), e)
+            return (grid_id, order_id, order_idx, "wait_order", datetime.now(), e)
 
         step_progress_bars["wait_order"].update(1)
 
@@ -209,14 +209,14 @@ async def download_single_order(
             await retry_task(download_and_unzip, config.download_retries_max, config.download_backoff)
         except Exception as e:
             step_progress_bars["download_order"].update(1)
-            return (grid_id, "download_unzip", datetime.now(), e)
+            return (grid_id, order_id, order_idx, "download_unzip", datetime.now(), e)
 
         if config.cleanup_zip:
             try:
                 cleanup(order, save_dir)
             except Exception as e:
                 step_progress_bars["download_order"].update(1)
-                return (grid_id, "cleanup", datetime.now(), e)
+                return (grid_id, order_id, order_idx, "cleanup", datetime.now(), e)
 
         # Update progress
         step_progress_bars["download_order"].update(1)
@@ -269,19 +269,19 @@ async def download_orders(
 
     if failures:
         logger.error("\n[FAILED] Failed Tasks Summary:")
-        for grid_id, step, timestamp, error in failures:
-            logger.error(f" Grid {grid_id}: Failed at {step} with error:")
-            logger.exception(error)
-            log_structured_failure(
+        for grid_id, order_id, order_idx, step, timestamp, error in failures:
+            log_exception_failure(
+                logger=logger,
                 save_path=save_path,
                 run_id=run_id,
                 category=CATEGORY,
+                step=step,
+                error=error,
+                message=f"Grid {grid_id} Order {order_id} failed in order_download at {step}",
                 payload={
                     "grid_id": grid_id,
-                    "step": step,
-                    "error": repr(error),
-                    "error_type": type(error).__name__,
-                    "error_args": error.args,
+                    "order_id": order_id,
+                    "order_idx": order_idx,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
                     "timestamp": timestamp.isoformat() + "Z",

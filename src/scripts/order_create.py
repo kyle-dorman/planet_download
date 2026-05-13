@@ -18,7 +18,7 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
-    log_structured_failure,
+    log_exception_failure,
     retry_task,
     run_async_function,
     setup_logger,
@@ -87,7 +87,7 @@ async def create_region_order(
     end_date: datetime,
     save_dir,
     sem: asyncio.Semaphore,
-) -> None:
+) -> tuple[str, int, str, datetime, Exception] | None:
     async with sem:
         logger.debug(f"Creating order {order_request['name']}")
         cl = OrdersClient(sess)
@@ -107,21 +107,7 @@ async def create_region_order(
 
             logger.debug(f"Finished creating order {order_request['name']}")
         except Exception as error:
-            log_structured_failure(
-                save_path=save_dir,
-                run_id=run_id,
-                category=CATEGORY,
-                payload={
-                    "start_date": start_date.isoformat(),
-                    "end_date": end_date.isoformat(),
-                    "grid_id": grid_id,
-                    "error": repr(error),
-                    "error_type": type(error).__name__,
-                    "error_args": error.args,
-                    "order_idx": order_idx,
-                    "timestamp": datetime.now().isoformat() + "Z",
-                },
-            )
+            return (grid_id, order_idx, "create_order", datetime.now(), error)
 
 
 # Create list of orders to create across all grid paths.
@@ -224,11 +210,32 @@ async def create_orders(
             )
             for order_request, order_idx, results_grid_dir in order_requests
         ]
-        await asyncio.gather(*order_tasks)
+        results = await asyncio.gather(*order_tasks)
     except Exception as e:
         logger.error(f"Error creating order for {start_date} {end_date}")
         logger.exception(e)
         raise e
+
+    failures = [res for res in results if res is not None]
+    if failures:
+        logger.error("\n[FAILED] Failed Order Creation Summary:")
+        for grid_id, order_idx, step, timestamp, error in failures:
+            log_exception_failure(
+                logger=logger,
+                save_path=save_dir,
+                run_id=run_id,
+                category=CATEGORY,
+                step=step,
+                error=error,
+                message=f"Grid {grid_id} Order index {order_idx} failed in order_create at {step}",
+                payload={
+                    "grid_id": grid_id,
+                    "order_idx": order_idx,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "timestamp": timestamp.isoformat() + "Z",
+                },
+            )
 
 
 # Main loop. Create order requests and download the orders when ready.

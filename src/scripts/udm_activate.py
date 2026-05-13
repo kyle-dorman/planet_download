@@ -17,7 +17,7 @@ from src.util import (
     geojson_paths,
     get_tqdm,
     is_notebook,
-    log_structured_failure,
+    log_exception_failure,
     retry_task,
     run_async_function,
     setup_logger,
@@ -128,19 +128,17 @@ async def activate_all_udms(
     if failures:
         logger.error("\n[FAILED] Failed Tasks Summary:")
         for grid_id, asset_id, step, timestamp, error in failures:
-            logger.error(f" - Grid {grid_id} Asset {asset_id}: Failed at {step} with error:")
-            logger.exception(error)
-            log_structured_failure(
+            log_exception_failure(
+                logger=logger,
                 save_path=save_path,
                 run_id=run_id,
                 category=CATEGORY,
+                step=step,
+                error=error,
+                message=f"Grid {grid_id} Asset {asset_id} failed in udm_activate at {step}",
                 payload={
                     "grid_id": grid_id,
                     "asset_id": asset_id,
-                    "step": step,
-                    "error": repr(error),
-                    "error_type": type(error).__name__,
-                    "error_args": error.args,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
                     "timestamp": timestamp.isoformat() + "Z",

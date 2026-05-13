@@ -4,6 +4,7 @@ import logging
 import multiprocessing as mp
 import random
 import re
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Type
@@ -357,4 +358,38 @@ def log_structured_failure(save_path: Path, run_id: str, category: str, payload:
     failure_log_path = save_path / "failures.jsonl"
     failure_log_path.parent.mkdir(parents=True, exist_ok=True)
     with failure_log_path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+        f.write(json.dumps(record, default=str) + "\n")
+
+
+def log_exception_failure(
+    logger: logging.Logger,
+    save_path: Path,
+    run_id: str,
+    category: str,
+    step: str,
+    error: BaseException,
+    message: str,
+    payload: dict,
+) -> None:
+    """Log an exception to the regular log and append a normalized JSONL record."""
+    exc_info = (type(error), error, error.__traceback__)
+    logger.error(message, exc_info=exc_info)
+
+    failure_payload = {
+        **payload,
+        "step": step,
+        "error": repr(error),
+        "error_message": str(error),
+        "error_repr": repr(error),
+        "error_type": type(error).__name__,
+        "error_args": [str(arg) for arg in error.args],
+        "traceback": "".join(traceback.format_exception(*exc_info)),
+        "timestamp": payload.get("timestamp", datetime.now().isoformat() + "Z"),
+    }
+
+    log_structured_failure(
+        save_path=save_path,
+        run_id=run_id,
+        category=category,
+        payload=failure_payload,
+    )

@@ -19,7 +19,7 @@ from src.util import (
     get_tqdm,
     has_crs,
     is_notebook,
-    log_structured_failure,
+    log_exception_failure,
     retry_task,
     run_async_function,
     setup_logger,
@@ -220,19 +220,18 @@ async def run_search(
                 save_search_geom(filtered_item_list, grid_save_path / "search_geometries.geojson")
 
         except Exception as error:
-            logger.error(f"Grid {grid_id} failed: {error}")
-            log_structured_failure(
+            log_exception_failure(
+                logger=logger,
                 save_path=save_path,
                 run_id=run_id,
                 category=CATEGORY,
+                step="run_search",
+                error=error,
+                message=f"Grid {grid_id} failed in udm_search",
                 payload={
                     "grid_id": grid_id,
-                    "error": repr(error),
-                    "error_type": type(error).__name__,
-                    "error_args": error.args,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
-                    "timestamp": datetime.now().isoformat() + "Z",
                 },
             )
 
