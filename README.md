@@ -56,6 +56,8 @@ cd planet_download
 ```
 
 ### Create conda environment
+This repo uses Conda as the primary environment setup path.
+
 ```bash
 conda env create -f environment.yml
 ```
@@ -73,7 +75,13 @@ conda activate planet_download
 ```
 
 ### Edit the config file
-See the file `src/config.py` to see all configuration options. You ***MUST*** set the `grid_dir` and `save_dir` variables. You should also add a `processing_dir` if you wish the data to be copied for further Neural Network processing. Feel free to edit the `config.yaml` directly. 
+Start from the tracked example config and create a local `config.yaml`.
+
+```bash
+cp configs/download.example.yaml config.yaml
+```
+
+You ***MUST*** set the `grid_dir` and `save_dir` variables. You should also add a `processing_dir` if you wish the data to be copied for further Neural Network processing. Local `config.yaml` files are ignored by git.
 
 `grid_dir` - The path to a folder of geojson grid files in the wgs84 CRS. 
 `save_dir` - The path to a folder where you want to save the data. During the download process, data will be saved to folders following the convention: `save_dir/YEAR/MONTH/GRID_ID`
@@ -81,6 +89,12 @@ See the file `src/config.py` to see all configuration options. You ***MUST*** se
 
 ### Planet API Key
 Look up your API key from the [Planet Account Settings](https://www.planet.com/account/#/user-settings). 
+
+Optionally create a local `.env` file:
+
+```bash
+cp .env.example .env
+```
 
 ### Option 1: Run download script via Jupyter
 1. Launch jupyter notebook

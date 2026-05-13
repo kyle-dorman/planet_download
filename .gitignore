@@ -112,4 +112,8 @@ notebooks/lightning_logs/
 
 
 # Config
-run_config.yaml
+/config.yaml
+/run_config.yaml
+
+# This project uses Conda as the primary environment contract.
+/uv.lock

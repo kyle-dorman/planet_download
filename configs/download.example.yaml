@@ -1,0 +1,47 @@
+# Copy this file to config.yaml and update the paths before running scripts.
+
+# Path to a directory of WGS84 GeoJSON grid files.
+grid_dir: /path/to/grids
+
+# Path where downloaded data should be saved.
+# Outputs are written under save_dir/YEAR/MONTH/GRID_ID.
+save_dir: /path/to/downloads
+
+# Optional path for copying final surface reflectance and UDM files for later processing.
+# Use null if you do not need this copy step.
+processing_dir: null
+
+# Cleanup options.
+cleanup_zip: true
+cleanup_udm: true
+
+# Planet item and asset options.
+item_type: PSScene
+asset_type: ortho_sr
+num_bands: 4
+ground_control: true
+quality_category: Standard
+publishing_stage: Finalized
+
+# Optional instrument filter. Use null for all instruments, or a list such as [PSB_SD].
+instrument: null
+
+# Search and selection thresholds.
+clear_percent: 0.0
+coverage_count: 5
+percent_added: 5.0
+udm_limit: 1000
+skip_same_range_days: 0.9
+use_same_range_if_neccessary: true
+
+# Concurrency and retry controls.
+max_concurrent_tasks: 1000
+max_concurrent_download_tasks: 1
+order_item_limit: 500
+download_retries_max: 3
+download_backoff: 1.0
+client_max_attempts: 200
+client_delay: 5
+
+# Name of the intermediate UDM selection file written in each output folder.
+udm_select_file_name: images_to_download.csv

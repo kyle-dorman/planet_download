@@ -1,18 +1,16 @@
 #!/bin/bash
+set -euo pipefail
 
 # Lint
 
-# Pyuprade
-pyupgrade `find src -name "*.py"`
+# Pyupgrade
+find src -name "*.py" -print0 | xargs -0 pyupgrade
 
 # isort
 isort src
 
 # black
 black src
-
-# pep8
-autopep8 src
 
 # flake
 flake8 src

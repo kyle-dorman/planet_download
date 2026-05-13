@@ -2,16 +2,10 @@
   "recommendations": [
     "ms-python.python",
     "ms-python.vscode-pylance",
-    "ms-toolsai.jupyter",
-    "ms-toolsai.jupyter-renderers",
+    "ms-python.black-formatter",
+    "ms-python.isort",
     "ms-python.flake8",
-    "ms-azuretools.vscode-docker",
-    "mechatroner.rainbow-csv",
-    "ms-vscode.makefile-tools",
-    "GeriYoco.vscode-image-gallery",
-    "wholroyd.jinja",
-    "batisteo.vscode-django",
-    "kevinrose.vsc-python-indent",
-    "njpwerner.autodocstring"
+    "ms-toolsai.jupyter",
+    "ms-toolsai.jupyter-renderers"
   ]
 }
