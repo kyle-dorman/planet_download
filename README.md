@@ -60,10 +60,9 @@ cd planet_download
 conda env create -f environment.yml
 ```
 
-### Activate Jupyter Widgets
+### Activate conda environment
 ```bash
 conda activate planet_download
-jupyter nbextension enable --py widgetsnbextension
 ```
 
 ## Download data

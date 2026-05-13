@@ -1,6 +1,7 @@
 import json
 import logging
 import tempfile
+import traceback
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -279,7 +280,7 @@ def udm_select(
                 end_date=end_date,
             )
         except Exception as error:
-            logger.error(f"Grid {grid_id} failed in udm_select: {error}")
+            logger.exception("Grid %s failed in udm_select", grid_id)
             log_structured_failure(
                 save_path=save_path,
                 run_id=run_id,
@@ -290,6 +291,7 @@ def udm_select(
                     "error": repr(error),
                     "error_type": type(error).__name__,
                     "error_args": error.args,
+                    "traceback": traceback.format_exc(),
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
                     "timestamp": datetime.now().isoformat() + "Z",
