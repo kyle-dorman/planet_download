@@ -47,7 +47,7 @@ brew install git
 ### Clone repo
 This command will create a new folder `planet_download` in your terminal's current directory. If you want it installed somewhere specific, move to that folder first (`cd SOMEWHERE/ELSE`)
 ```bash
-git clone git@github.com:kyledorman/planet_download.git
+git clone git@github.com:kyle-dorman/planet_download.git
 ```
 
 After cloning the repo, enter the folder
