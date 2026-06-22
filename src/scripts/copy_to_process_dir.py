@@ -18,7 +18,7 @@ def copy_to_process_dir(
 ) -> None:
     config, save_path = create_config(config_file, start_date=start_date, end_date=end_date)
 
-    setup_logger()
+    setup_logger(save_path, log_filename="copy_to_process_dir.log")
 
     if config.processing_dir is None:
         logger.warning("Processing directory is None. Skipping...")
