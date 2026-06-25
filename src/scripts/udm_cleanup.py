@@ -35,7 +35,7 @@ def udm_cleanup(
 
     in_notebook = is_notebook()
 
-    grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
+    grid_paths = geojson_paths(config.grid_dir)
 
     tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
     for grid_path in tqdm(grid_paths):

@@ -17,7 +17,7 @@ def run_script(script_path: str, start_date: datetime, end_date: datetime, confi
     try:
         subprocess.run(
             [
-                "python",
+                sys.executable,
                 script_path,
                 "--start-date",
                 start_date_str,
@@ -64,6 +64,7 @@ def main(config_file: Path, year: list[int], month: list[int]) -> None:
 
     # List of scripts to run
     scripts = [
+        "src/scripts/check_grid_crs.py",
         "src/scripts/udm_search.py",
         "src/scripts/udm_activate.py",
         "src/scripts/udm_download.py",

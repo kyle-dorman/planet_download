@@ -300,7 +300,7 @@ async def main_loop(
     in_notebook: bool,
     run_id: str,
 ) -> None:
-    grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
+    grid_paths = geojson_paths(config.grid_dir)
 
     # Load the orders from disk
     all_orders = []

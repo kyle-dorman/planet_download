@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import multiprocessing as mp
 import random
 import re
 import traceback
@@ -9,7 +8,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Type
 
-import geopandas as gpd
 import numpy as np
 import rasterio
 import rasterio.errors
@@ -63,14 +61,14 @@ def tif_paths(directory: Path) -> list[Path]:
     return paths
 
 
-def geojson_paths(directory: Path, in_notebook: bool, check_crs: bool) -> list[Path]:
+def geojson_paths(directory: Path) -> list[Path]:
     """Get geojson files in a directory
 
     Args:
         directory (Path): The directory to look in
 
     Returns:
-        list[Path]: A list of paths. Paths are validated for CRS.
+        list[Path]: A list of paths.
     """
     logger.info("Finding grids")
     dir_search = ""
@@ -82,9 +80,6 @@ def geojson_paths(directory: Path, in_notebook: bool, check_crs: bool) -> list[P
 
     paths = sorted(list(directory.glob(f"{dir_search}*.geojson")))
     logger.info(f"Found {len(paths)} grids")
-
-    if check_crs:
-        check_all_has_crs(paths, workers=mp.cpu_count(), in_notebook=in_notebook)
 
     return paths
 
@@ -272,35 +267,6 @@ def get_tqdm(use_async: bool, in_notebook: bool) -> Type[tqdm]:
         return tqdm_asyncio
     else:
         return tqdm
-
-
-def has_crs(geojson_path: Path) -> None:
-    """Verify geojson file has a CRS
-
-    Args:
-        geojson_path (Path): _description_
-    """
-    gdf = gpd.read_file(geojson_path)
-    assert gdf.crs is not None, "{} is missing a CRS"
-
-
-def check_all_has_crs(paths: list[Path], workers: int, in_notebook: bool):
-    """
-    Parallelize has_crs over a list of Path objects.
-    Errors out on the first failure.
-    """
-    this_tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
-    # use fork instead of spawn to avoid semaphore leaks on macOS
-    ctx = mp.get_context("fork")
-    with ctx.Pool(processes=workers) as pool:
-        # executor.map will raise the first exception it encounters
-        for _ in this_tqdm(
-            pool.imap_unordered(has_crs, paths, chunksize=100),
-            total=len(paths),
-            desc="Checking CRS",
-        ):
-            pass
-    logger.info(f"✅ All {len(paths)} files have a CRS.")
 
 
 def is_within_n_hours(target_date: datetime, date_list: Iterable[datetime], n_hours: int) -> bool:

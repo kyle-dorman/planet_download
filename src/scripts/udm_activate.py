@@ -168,8 +168,8 @@ def get_grid_search_results(
 
 
 # Gets a list of all UDMs which need to be activated across all grids.
-def get_search_results(config: DownloadConfig, save_path: Path, in_notebook: bool) -> list[tuple[dict, Path]]:
-    grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
+def get_search_results(config: DownloadConfig, save_path: Path) -> list[tuple[dict, Path]]:
+    grid_paths = geojson_paths(config.grid_dir)
 
     to_activate = []
     for grid_path in grid_paths:
@@ -187,15 +187,15 @@ async def main_loop(
     start_date: datetime,
     end_date: datetime,
 ) -> None:
-    to_activate = get_search_results(config, save_path, in_notebook)
+    to_activate = get_search_results(config, save_path)
 
     async with Session() as sess:
         # loop through and activate all the UDM2 files for the given date and grid
         await activate_all_udms(
             to_activate,
-            sess,
-            config,
-            in_notebook,
+            sess=sess,
+            config=config,
+            in_notebook=in_notebook,
             save_path=save_path,
             run_id=run_id,
             start_date=start_date,

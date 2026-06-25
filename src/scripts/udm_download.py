@@ -205,7 +205,7 @@ async def main_loop(
     start_date: datetime,
     end_date: datetime,
 ) -> None:
-    to_download = get_search_results(config, save_path, in_notebook)
+    to_download = get_search_results(config, save_path)
 
     async with Session() as sess:
         # loop through and download all the UDM2 files for the given date and grid

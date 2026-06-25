@@ -257,7 +257,7 @@ def udm_select(
 
     tqdm = get_tqdm(use_async=False, in_notebook=in_notebook)
 
-    for grid_path in tqdm(geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)):
+    for grid_path in tqdm(geojson_paths(config.grid_dir)):
         grid_id = grid_path.stem
         logger.debug(f"Selecting best UDMs for {grid_id}")
 

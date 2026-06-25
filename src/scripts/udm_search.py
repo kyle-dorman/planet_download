@@ -17,7 +17,6 @@ from src.util import (
     create_config,
     geojson_paths,
     get_tqdm,
-    has_crs,
     is_notebook,
     log_exception_failure,
     retry_task,
@@ -189,7 +188,6 @@ async def run_search(
     if results_path.exists():
         return
 
-    has_crs(grid_path)
     grid_poly = load_grid(grid_path)
     grid_save_path.mkdir(parents=True, exist_ok=True)
 
@@ -248,7 +246,7 @@ async def run_searches_gather(
     in_notebook: bool,
     run_id: str,
 ) -> None:
-    grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
+    grid_paths = geojson_paths(config.grid_dir)
     total = len(grid_paths)
 
     # search items with limited concurrency and one progress bar
@@ -257,7 +255,17 @@ async def run_searches_gather(
     tqdm = get_tqdm(use_async=True, in_notebook=in_notebook)
     with tqdm(total=total, desc="Create Search", position=0, dynamic_ncols=True) as pbar:
         coros = [
-            run_search(sess, config, save_path, start_date, end_date, grid_path, pbar, sem, run_id)
+            run_search(
+                sess,
+                config,
+                save_path=save_path,
+                start_date=start_date,
+                end_date=end_date,
+                grid_path=grid_path,
+                pbar=pbar,
+                sem=sem,
+                run_id=run_id,
+            )
             for grid_path in grid_paths
         ]
         await asyncio.gather(*coros)

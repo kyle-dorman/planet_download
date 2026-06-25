@@ -247,10 +247,19 @@ async def main_loop(
     in_notebook: bool,
     run_id: str,
 ) -> None:
-    grid_paths = geojson_paths(config.grid_dir, in_notebook=in_notebook, check_crs=False)
+    grid_paths = geojson_paths(config.grid_dir)
 
     async with Session() as sess:
-        await create_orders(sess, grid_paths, save_path, start_date, end_date, config, in_notebook, run_id)
+        await create_orders(
+            sess=sess,
+            grid_paths=grid_paths,
+            save_dir=save_path,
+            start_date=start_date,
+            end_date=end_date,
+            config=config,
+            in_notebook=in_notebook,
+            run_id=run_id,
+        )
 
 
 def order_create(

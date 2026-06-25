@@ -1,16 +1,16 @@
-import json
 import logging
 import os
 from collections import Counter
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
 import rasterio
 from rasterio.crs import CRS
 from rasterio.enums import Resampling
 from rasterio.mask import mask as rmask
 from rasterio.transform import from_origin
-from rasterio.warp import reproject, transform_geom
+from rasterio.warp import reproject
 from shapely.geometry import Polygon, shape
 
 logger = logging.getLogger(__name__)
@@ -44,26 +44,19 @@ def calculate_intersection_pct(grid_geom: Polygon, asset_geom: Polygon) -> float
 
 # Load the geojson grid.
 def load_grid(grid_path: Path) -> Polygon:
-    # Load Target Grid
-    with open(grid_path) as f:
-        grid_geojson = json.load(f)
-        geom = grid_geojson["features"][0]["geometry"]
-        grid_geom: Polygon = shape(geom)  # type: ignore
+    grid = gpd.read_file(grid_path)
+    grid_geom: Polygon = grid.geometry.iloc[0]  # type: ignore
 
     return grid_geom
 
 
 # Convert a geojson poygon to a different crs.
 def open_and_convert_grid(grid_path: Path, crs: CRS) -> Polygon:
-    # Load Target Grid
-    with open(grid_path) as f:
-        grid_geojson = json.load(f)
-        geom = grid_geojson["features"][0]["geometry"]
-        grid_geom: Polygon = shape(geom)  # type: ignore
-        grid_crs = CRS.from_string(grid_geojson["crs"]["properties"]["name"])
+    grid = gpd.read_file(grid_path)
+    if grid.crs is None:
+        raise ValueError(f"{grid_path} is missing a CRS")
 
-    # Convert grid bounds to base udm crs
-    grid_transformed: Polygon = shape(transform_geom(grid_crs, crs, grid_geom))  # type: ignore
+    grid_transformed: Polygon = grid.to_crs(crs.to_string()).geometry.iloc[0]  # type: ignore
 
     return grid_transformed
 
